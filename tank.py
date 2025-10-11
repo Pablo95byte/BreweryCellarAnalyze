@@ -413,12 +413,16 @@ class App(tk.Tk):
         # Tab 3: Grafici (solo se matplotlib disponibile)
         if _HAS_MATPLOTLIB:
             self._build_charts_tab()
+        
+        # Tab 4: Analisi Variazioni
+        self._build_variations_tab()
 
         actions = ttk.Frame(self)
         actions.pack(fill=tk.X, padx=10, pady=(0,10))
         ttk.Button(actions, text="Esporta per Tank (CSV)", command=self.on_export_tank_csv).pack(side=tk.LEFT)
         ttk.Button(actions, text="Esporta per Materiale (CSV)", command=self.on_export_mat_csv).pack(side=tk.LEFT, padx=(10,0))
         ttk.Button(actions, text="Esporta Debug (CSV)", command=self.on_export_debug_csv).pack(side=tk.LEFT, padx=(10,0))
+        ttk.Button(actions, text="Esporta Variazioni (CSV)", command=self.on_export_variations_csv).pack(side=tk.LEFT, padx=(10,0))
         btnx = ttk.Button(actions, text="Esporta report (XLSX)", command=self.on_export_xlsx)
         if not _HAS_OPENPYXL:
             btnx.state(["disabled"])
@@ -531,6 +535,69 @@ class App(tk.Tk):
         # Frame per i grafici
         self.charts_frame = ttk.Frame(tab)
         self.charts_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0,10))
+
+    def _build_variations_tab(self):
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Analisi Variazioni")
+
+        info = ttk.Label(tab, text="Variazioni di livello e perdite tra misurazioni successive nel giorno selezionato", foreground="#555")
+        info.pack(fill=tk.X, padx=10, pady=10)
+
+        # Frame per selezione tank
+        select_frame = ttk.Frame(tab)
+        select_frame.pack(fill=tk.X, padx=10, pady=(0,10))
+        ttk.Label(select_frame, text="Filtra per Tank:").pack(side=tk.LEFT)
+        self.var_filter_tank = tk.StringVar(value="Tutti")
+        self.cb_filter_tank = ttk.Combobox(select_frame, textvariable=self.var_filter_tank, width=15, state="readonly")
+        self.cb_filter_tank['values'] = ["Tutti"]
+        self.cb_filter_tank.pack(side=tk.LEFT, padx=(5,10))
+        self.cb_filter_tank.bind("<<ComboboxSelected>>", lambda e: self.update_variations_table())
+        ttk.Button(select_frame, text="Aggiorna", command=self.update_variations_table).pack(side=tk.LEFT)
+
+        # Tabella variazioni
+        var_frame = ttk.Frame(tab)
+        var_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0,10))
+        
+        cols_v = ("time", "tank", "material", "level_prev", "level_curr", "delta_level", "gravity_prev", "gravity_curr", "kg_prev", "kg_curr", "delta_kg")
+        self.tv_variations = ttk.Treeview(var_frame, columns=cols_v, show="headings", height=20)
+        self.tv_variations.heading("time", text="Timestamp")
+        self.tv_variations.heading("tank", text="Tank")
+        self.tv_variations.heading("material", text="Materiale")
+        self.tv_variations.heading("level_prev", text="Level Prec (hl)")
+        self.tv_variations.heading("level_curr", text="Level Corr (hl)")
+        self.tv_variations.heading("delta_level", text="ΔLevel (hl)")
+        self.tv_variations.heading("gravity_prev", text="Gravity Prec")
+        self.tv_variations.heading("gravity_curr", text="Gravity Corr")
+        self.tv_variations.heading("kg_prev", text="Kg Prec")
+        self.tv_variations.heading("kg_curr", text="Kg Corr")
+        self.tv_variations.heading("delta_kg", text="ΔKg")
+        
+        self.tv_variations.column("time", width=140, anchor=tk.W)
+        self.tv_variations.column("tank", width=70, anchor=tk.W)
+        self.tv_variations.column("material", width=120, anchor=tk.W)
+        self.tv_variations.column("level_prev", width=100, anchor=tk.E)
+        self.tv_variations.column("level_curr", width=100, anchor=tk.E)
+        self.tv_variations.column("delta_level", width=90, anchor=tk.E)
+        self.tv_variations.column("gravity_prev", width=90, anchor=tk.E)
+        self.tv_variations.column("gravity_curr", width=90, anchor=tk.E)
+        self.tv_variations.column("kg_prev", width=90, anchor=tk.E)
+        self.tv_variations.column("kg_curr", width=90, anchor=tk.E)
+        self.tv_variations.column("delta_kg", width=90, anchor=tk.E)
+
+        vsb_v = ttk.Scrollbar(var_frame, orient="vertical", command=self.tv_variations.yview)
+        hsb_v = ttk.Scrollbar(var_frame, orient="horizontal", command=self.tv_variations.xview)
+        self.tv_variations.configure(yscrollcommand=vsb_v.set, xscrollcommand=hsb_v.set)
+        self.tv_variations.grid(row=0, column=0, sticky='nsew')
+        vsb_v.grid(row=0, column=1, sticky='ns')
+        hsb_v.grid(row=1, column=0, sticky='ew')
+        var_frame.grid_rowconfigure(0, weight=1)
+        var_frame.grid_columnconfigure(0, weight=1)
+
+        # Summary variazioni
+        summary_frame = ttk.LabelFrame(tab, text="Riepilogo Variazioni")
+        summary_frame.pack(fill=tk.X, padx=10, pady=(0,10))
+        self.lbl_var_summary = ttk.Label(summary_frame, text="Seleziona un giorno per vedere le variazioni", foreground="#555")
+        self.lbl_var_summary.pack(padx=10, pady=10, anchor=tk.W)
 
     # ---------------------- Giorno singolo ----------------------
     def populate_days(self):
@@ -666,6 +733,116 @@ class App(tk.Tk):
 
         # Aggiorna eventuale finestra totale aperta
         self.refresh_total_window()
+        
+        # Aggiorna tabella variazioni
+        self.update_variations_table()
+
+    def update_variations_table(self):
+        """Calcola e mostra le variazioni di livello e Kg tra misurazioni successive"""
+        if not self._cache_debug:
+            return
+        
+        # Pulisci tabella
+        for r in self.tv_variations.get_children():
+            self.tv_variations.delete(r)
+        
+        # Raggruppa per tank
+        by_tank = defaultdict(list)
+        for dt, tank, mat, g, v, fa, kg in self._cache_debug:
+            by_tank[tank].append((dt, mat, g, v, fa, kg))
+        
+        # Ordina per timestamp
+        for tank in by_tank:
+            by_tank[tank].sort(key=lambda x: x[0] if x[0] else datetime.min)
+        
+        # Aggiorna lista tank disponibili
+        all_tanks = sorted(by_tank.keys())
+        self.cb_filter_tank['values'] = ["Tutti"] + all_tanks
+        
+        # Filtra per tank selezionato
+        filter_tank = self.var_filter_tank.get()
+        if filter_tank != "Tutti" and filter_tank in by_tank:
+            tanks_to_show = {filter_tank: by_tank[filter_tank]}
+        else:
+            tanks_to_show = by_tank
+        
+        # Calcola variazioni
+        variations = []
+        total_delta_level = 0.0
+        total_delta_kg = 0.0
+        max_increase_level = 0.0
+        max_decrease_level = 0.0
+        max_increase_kg = 0.0
+        max_decrease_kg = 0.0
+        
+        for tank, measurements in tanks_to_show.items():
+            for i in range(1, len(measurements)):
+                prev = measurements[i-1]
+                curr = measurements[i]
+                
+                dt_prev, mat_prev, g_prev, v_prev, fa_prev, kg_prev = prev
+                dt_curr, mat_curr, g_curr, v_curr, fa_curr, kg_curr = curr
+                
+                delta_level = v_curr - v_prev if (v_curr is not None and v_prev is not None) else None
+                delta_kg = kg_curr - kg_prev
+                
+                if delta_level is not None:
+                    total_delta_level += delta_level
+                    if delta_level > max_increase_level:
+                        max_increase_level = delta_level
+                    if delta_level < max_decrease_level:
+                        max_decrease_level = delta_level
+                
+                total_delta_kg += delta_kg
+                if delta_kg > max_increase_kg:
+                    max_increase_kg = delta_kg
+                if delta_kg < max_decrease_kg:
+                    max_decrease_kg = delta_kg
+                
+                # Colora le righe in base alla variazione
+                tag = ""
+                if delta_level is not None:
+                    if delta_level < -10:  # Calo significativo
+                        tag = "decrease"
+                    elif delta_level > 10:  # Aumento significativo
+                        tag = "increase"
+                
+                item = self.tv_variations.insert("", tk.END, values=(
+                    dt_curr.strftime("%Y-%m-%d %H:%M:%S") if dt_curr else "",
+                    tank,
+                    mat_curr,
+                    fmt_it(v_prev, 2) if v_prev is not None else "",
+                    fmt_it(v_curr, 2) if v_curr is not None else "",
+                    fmt_it(delta_level, 2) if delta_level is not None else "",
+                    fmt_it(g_prev, 2) if g_prev is not None else "",
+                    fmt_it(g_curr, 2) if g_curr is not None else "",
+                    fmt_it(kg_prev, 3),
+                    fmt_it(kg_curr, 3),
+                    fmt_it(delta_kg, 3)
+                ), tags=(tag,))
+                
+                variations.append((dt_curr, tank, mat_curr, v_prev, v_curr, delta_level, g_prev, g_curr, kg_prev, kg_curr, delta_kg))
+        
+        # Configura colori
+        self.tv_variations.tag_configure("decrease", background="#ffcccc")  # Rosso chiaro
+        self.tv_variations.tag_configure("increase", background="#ccffcc")  # Verde chiaro
+        
+        # Aggiorna summary
+        num_variations = len(variations)
+        if num_variations > 0:
+            summary_text = (
+                f"Variazioni totali: {num_variations} | "
+                f"ΔLevel totale: {fmt_it(total_delta_level, 2)} hl | "
+                f"ΔKg totale: {fmt_it(total_delta_kg, 3)} kg\n"
+                f"Max aumento level: {fmt_it(max_increase_level, 2)} hl | "
+                f"Max calo level: {fmt_it(max_decrease_level, 2)} hl | "
+                f"Max aumento Kg: {fmt_it(max_increase_kg, 3)} kg | "
+                f"Max perdita Kg: {fmt_it(max_decrease_kg, 3)} kg"
+            )
+        else:
+            summary_text = "Nessuna variazione disponibile"
+        
+        self.lbl_var_summary.config(text=summary_text)
 
     def _parse_date(self, s):
         s = str(s).strip()
@@ -906,6 +1083,63 @@ class App(tk.Tk):
         except Exception as e:
             messagebox.showerror("Errore", str(e))
 
+    def on_export_variations_csv(self):
+        """Esporta le variazioni in CSV"""
+        if not self._cache_debug:
+            return
+        
+        path = filedialog.asksaveasfilename(
+            title="Salva CSV Variazioni",
+            defaultextension=".csv",
+            initialfile="variazioni_level_kg.csv",
+            filetypes=[("CSV", "*.csv"), ("Tutti i file", "*.*")]
+        )
+        if not path:
+            return
+        
+        try:
+            # Calcola variazioni
+            by_tank = defaultdict(list)
+            for dt, tank, mat, g, v, fa, kg in self._cache_debug:
+                by_tank[tank].append((dt, mat, g, v, fa, kg))
+            
+            for tank in by_tank:
+                by_tank[tank].sort(key=lambda x: x[0] if x[0] else datetime.min)
+            
+            with open(path, 'w', encoding='utf-8', newline='') as f:
+                w = csv.writer(f)
+                w.writerow(['Timestamp','Tank','Materiale','Level_Prec_hl','Level_Corr_hl','Delta_Level_hl',
+                           'Gravity_Prec','Gravity_Corr','Kg_Prec','Kg_Corr','Delta_Kg'])
+                
+                for tank, measurements in sorted(by_tank.items()):
+                    for i in range(1, len(measurements)):
+                        prev = measurements[i-1]
+                        curr = measurements[i]
+                        
+                        dt_prev, mat_prev, g_prev, v_prev, fa_prev, kg_prev = prev
+                        dt_curr, mat_curr, g_curr, v_curr, fa_curr, kg_curr = curr
+                        
+                        delta_level = v_curr - v_prev if (v_curr is not None and v_prev is not None) else None
+                        delta_kg = kg_curr - kg_prev
+                        
+                        w.writerow([
+                            dt_curr.strftime("%Y-%m-%d %H:%M:%S") if dt_curr else "",
+                            tank,
+                            mat_curr,
+                            f"{v_prev:.2f}" if v_prev is not None else "",
+                            f"{v_curr:.2f}" if v_curr is not None else "",
+                            f"{delta_level:.2f}" if delta_level is not None else "",
+                            f"{g_prev:.2f}" if g_prev is not None else "",
+                            f"{g_curr:.2f}" if g_curr is not None else "",
+                            f"{kg_prev:.3f}",
+                            f"{kg_curr:.3f}",
+                            f"{delta_kg:.3f}"
+                        ])
+            
+            messagebox.showinfo("Esportato", f"File salvato in:\n{path}")
+        except Exception as e:
+            messagebox.showerror("Errore", str(e))
+
     def on_export_xlsx(self):
         if not self._cache_mat and not self._cache_tank:
             return
@@ -952,6 +1186,43 @@ class App(tk.Tk):
                     float(f"{fa:.6f}") if fa is not None else None,
                     float(f"{kg:.3f}")
                 ])
+
+            # Foglio Variazioni
+            ws_var = wb.create_sheet('Variazioni')
+            ws_var.append(['Timestamp','Tank','Materiale','Level_Prec_hl','Level_Corr_hl','Delta_Level_hl',
+                          'Gravity_Prec','Gravity_Corr','Kg_Prec','Kg_Corr','Delta_Kg'])
+            
+            by_tank = defaultdict(list)
+            for dt, tank, mat, g, v, fa, kg in self._cache_debug:
+                by_tank[tank].append((dt, mat, g, v, fa, kg))
+            
+            for tank in by_tank:
+                by_tank[tank].sort(key=lambda x: x[0] if x[0] else datetime.min)
+            
+            for tank, measurements in sorted(by_tank.items()):
+                for i in range(1, len(measurements)):
+                    prev = measurements[i-1]
+                    curr = measurements[i]
+                    
+                    dt_prev, mat_prev, g_prev, v_prev, fa_prev, kg_prev = prev
+                    dt_curr, mat_curr, g_curr, v_curr, fa_curr, kg_curr = curr
+                    
+                    delta_level = v_curr - v_prev if (v_curr is not None and v_prev is not None) else None
+                    delta_kg = kg_curr - kg_prev
+                    
+                    ws_var.append([
+                        dt_curr.strftime("%Y-%m-%d %H:%M:%S") if dt_curr else "",
+                        tank,
+                        mat_curr,
+                        float(f"{v_prev:.2f}") if v_prev is not None else None,
+                        float(f"{v_curr:.2f}") if v_curr is not None else None,
+                        float(f"{delta_level:.2f}") if delta_level is not None else None,
+                        float(f"{g_prev:.2f}") if g_prev is not None else None,
+                        float(f"{g_curr:.2f}") if g_curr is not None else None,
+                        float(f"{kg_prev:.3f}"),
+                        float(f"{kg_curr:.3f}"),
+                        float(f"{delta_kg:.3f}")
+                    ])
 
             ws4 = wb.create_sheet('Note')
             ws4.append(['Descrizione','Valore'])
