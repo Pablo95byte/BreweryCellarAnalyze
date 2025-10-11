@@ -35,6 +35,10 @@ except Exception:
     _HAS_MATPLOTLIB = False
 
 APP_TITLE = "Analisi Tank – per Tank + per Material + Totale (no SG)"
+APP_VERSION = "1.0"
+APP_AUTHOR = "PA"
+APP_EMAIL = "PA@HE.IT"
+APP_DEPT = "ASS_ST"
 
 # ---------------------- Utility ----------------------
 
@@ -373,9 +377,51 @@ class App(tk.Tk):
         # Single-day state
         self.sel_day = tk.StringVar(value="")
         self.days_list = []
+        
+        # Mostra splash screen
+        self.show_splash()
+        
         self._build()
 
+    def show_splash(self):
+        """Mostra splash screen all'avvio"""
+        splash = tk.Toplevel(self)
+        splash.title("")
+        splash.overrideredirect(True)
+        
+        # Centra la finestra
+        w, h = 400, 250
+        x = (splash.winfo_screenwidth() // 2) - (w // 2)
+        y = (splash.winfo_screenheight() // 2) - (h // 2)
+        splash.geometry(f"{w}x{h}+{x}+{y}")
+        
+        # Contenuto
+        frame = ttk.Frame(splash, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text=APP_TITLE, font=("Segoe UI", 16, "bold")).pack(pady=(20,10))
+        ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
+        ttk.Label(frame, text=f"Versione {APP_VERSION}", font=("Segoe UI", 11)).pack(pady=5)
+        ttk.Label(frame, text=f"Sviluppato da {APP_AUTHOR}", font=("Segoe UI", 10)).pack(pady=5)
+        ttk.Label(frame, text=APP_DEPT, font=("Segoe UI", 9), foreground="#666").pack(pady=2)
+        ttk.Label(frame, text=APP_EMAIL, font=("Segoe UI", 9), foreground="#0066cc").pack(pady=2)
+        ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
+        ttk.Label(frame, text="Caricamento in corso...", font=("Segoe UI", 9), foreground="#999").pack(pady=(10,20))
+        
+        splash.update()
+        
+        # Chiudi dopo 2.5 secondi
+        self.after(2500, splash.destroy)
+
     def _build(self):
+        # Menu bar
+        menubar = tk.Menu(self)
+        self.config(menu=menubar)
+        
+        help_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="About", command=self.show_about)
+        
         top = ttk.Frame(self)
         top.pack(fill=tk.X, padx=10, pady=10)
         ttk.Button(top, text="Apri CSV...", command=self.on_open).pack(side=tk.LEFT)
@@ -433,7 +479,13 @@ class App(tk.Tk):
             "f(A) = ((0.0000188792*G + 0.003646886)*G + 1.001077)*G - 0.01223565; "
             "Kg estratto (riga) = f(A) * Level. Mapping: 7=ichnusa, 8=non filtrata, 9=cruda, 28=ambra limpida."
         ), foreground="#555")
-        hint.pack(fill=tk.X, padx=10, pady=(0,10))
+        hint.pack(fill=tk.X, padx=10, pady=(0,5))
+        
+        # Footer
+        footer = ttk.Frame(self)
+        footer.pack(fill=tk.X, side=tk.BOTTOM)
+        footer_text = f"Sviluppato da {APP_AUTHOR} ({APP_DEPT}) - v{APP_VERSION} - {APP_EMAIL}"
+        ttk.Label(footer, text=footer_text, foreground="#888", font=("Segoe UI", 8)).pack(pady=5)
 
     def _build_summary_tab(self):
         tab = ttk.Frame(self.notebook)
@@ -598,6 +650,40 @@ class App(tk.Tk):
         summary_frame.pack(fill=tk.X, padx=10, pady=(0,10))
         self.lbl_var_summary = ttk.Label(summary_frame, text="Seleziona un giorno per vedere le variazioni", foreground="#555")
         self.lbl_var_summary.pack(padx=10, pady=10, anchor=tk.W)
+
+    def show_about(self):
+        """Mostra finestra About"""
+        about = tk.Toplevel(self)
+        about.title("About")
+        about.resizable(False, False)
+        about.geometry("400x300")
+        
+        # Centra
+        about.update_idletasks()
+        x = (about.winfo_screenwidth() // 2) - (about.winfo_width() // 2)
+        y = (about.winfo_screenheight() // 2) - (about.winfo_height() // 2)
+        about.geometry(f"+{x}+{y}")
+        
+        frame = ttk.Frame(about, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text=APP_TITLE, font=("Segoe UI", 14, "bold")).pack(pady=(10,5))
+        ttk.Label(frame, text=f"Versione {APP_VERSION}", font=("Segoe UI", 10)).pack(pady=5)
+        
+        ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=15)
+        
+        ttk.Label(frame, text="Sviluppato da:", font=("Segoe UI", 9, "bold")).pack(pady=(5,2))
+        ttk.Label(frame, text=APP_AUTHOR, font=("Segoe UI", 10)).pack(pady=2)
+        ttk.Label(frame, text=APP_DEPT, font=("Segoe UI", 9), foreground="#666").pack(pady=2)
+        ttk.Label(frame, text=APP_EMAIL, font=("Segoe UI", 9), foreground="#0066cc").pack(pady=2)
+        
+        ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=15)
+        
+        info_text = ("Tool per l'analisi di tank FST/BBT con calcolo\n"
+                    "estratto, variazioni di livello e grafici temporali.")
+        ttk.Label(frame, text=info_text, font=("Segoe UI", 8), foreground="#555", justify=tk.CENTER).pack(pady=5)
+        
+        ttk.Button(frame, text="Chiudi", command=about.destroy).pack(pady=(15,10))
 
     # ---------------------- Giorno singolo ----------------------
     def populate_days(self):
@@ -1234,6 +1320,12 @@ class App(tk.Tk):
             excl = 'sì' if self.var_exclude_mat0.get() else 'no'
             ws4.append(['Totale Cantina', f"Material=0 escluso: {excl}"])
             ws4.append(['Modalità', 'Giorno singolo'])
+            ws4.append(['', ''])
+            ws4.append(['Tool Info', ''])
+            ws4.append(['Sviluppato da', APP_AUTHOR])
+            ws4.append(['Dipartimento', APP_DEPT])
+            ws4.append(['Versione', APP_VERSION])
+            ws4.append(['Contatto', APP_EMAIL])
 
             wb.save(path)
             messagebox.showinfo("Esportato", f"File salvato in:\n{path}")
