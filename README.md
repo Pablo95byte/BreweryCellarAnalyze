@@ -11,3 +11,15 @@ Clona il repository:
 ```bash
 git clone https://github.com/Pablo95byte/BreweryCellarAnalyze.git
 cd BreweryCellarAnalyze
+
+Crea un ambiente virtuale:
+python3 -m venv venv
+source venv/bin/activate
+
+
+Installa le dipendenze:
+pip install -r requirements.txt
+
+## 🧰 Dipendenze
+
+Le librerie Python necessarie sono elencate in requirements.txt.
