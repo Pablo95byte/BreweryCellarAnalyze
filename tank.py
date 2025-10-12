@@ -30,14 +30,15 @@ try:
     matplotlib.use('TkAgg')
     from matplotlib.figure import Figure
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    from matplotlib.backends.backend_pdf import PdfPages
     _HAS_MATPLOTLIB = True
 except Exception:
     _HAS_MATPLOTLIB = False
 
-APP_TITLE = "Analisi Tank – per Tank + per Material + Totale (no SG)"
-APP_VERSION = "1.0"
+APP_TITLE = "Analisi Stock Tank "
+APP_VERSION = "1.1"
 APP_AUTHOR = "PA"
-APP_EMAIL = "PA@HE.IT"
+APP_EMAIL = "paolo_aru@heinekenitalia.it"
 APP_DEPT = "ASS_ST"
 
 # ---------------------- Utility ----------------------
@@ -418,6 +419,10 @@ class App(tk.Tk):
         menubar = tk.Menu(self)
         self.config(menu=menubar)
         
+        # Menu Formule
+        menubar.add_command(label="Formule", command=self.show_formulas)
+        
+        # Menu Help
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Help", menu=help_menu)
         help_menu.add_command(label="About", command=self.show_about)
@@ -462,6 +467,9 @@ class App(tk.Tk):
         
         # Tab 4: Analisi Variazioni
         self._build_variations_tab()
+        
+        # Tab 5: Dati Raw
+        self._build_raw_data_tab()
 
         actions = ttk.Frame(self)
         actions.pack(fill=tk.X, padx=10, pady=(0,10))
@@ -583,10 +591,14 @@ class App(tk.Tk):
         btn_frame.pack(fill=tk.X, padx=10, pady=10)
         ttk.Button(btn_frame, text="Genera Grafici", command=self.on_generate_charts).pack(side=tk.LEFT)
         ttk.Label(btn_frame, text="(analizza tutti i giorni disponibili)", foreground="#555").pack(side=tk.LEFT, padx=10)
+        ttk.Button(btn_frame, text="Esporta Grafici (PDF)", command=self.on_export_charts_pdf).pack(side=tk.LEFT, padx=(20,0))
 
         # Frame per i grafici
         self.charts_frame = ttk.Frame(tab)
         self.charts_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0,10))
+        
+        # Variabile per memorizzare le figure
+        self.chart_figures = []
 
     def _build_variations_tab(self):
         tab = ttk.Frame(self.notebook)
@@ -651,6 +663,92 @@ class App(tk.Tk):
         self.lbl_var_summary = ttk.Label(summary_frame, text="Seleziona un giorno per vedere le variazioni", foreground="#555")
         self.lbl_var_summary.pack(padx=10, pady=10, anchor=tk.W)
 
+    def _build_raw_data_tab(self):
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Dati Raw")
+
+        info_frame = ttk.Frame(tab)
+        info_frame.pack(fill=tk.X, padx=10, pady=10)
+        ttk.Label(info_frame, text="Visualizzazione di TUTTI i dati grezzi del CSV caricato (nessun filtro applicato)", foreground="#555").pack(side=tk.LEFT)
+        ttk.Button(info_frame, text="Esporta Raw (CSV)", command=self.on_export_raw_csv).pack(side=tk.RIGHT, padx=(10,0))
+        ttk.Button(info_frame, text="Aggiorna", command=self.populate_raw_data).pack(side=tk.RIGHT)
+
+        # Frame con scrollbar orizzontale e verticale
+        raw_frame = ttk.Frame(tab)
+        raw_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0,10))
+        
+        # Crea Treeview senza colonne predefinite (le creeremo dinamicamente)
+        self.tv_raw = ttk.Treeview(raw_frame, show="headings", height=20)
+        
+        vsb_raw = ttk.Scrollbar(raw_frame, orient="vertical", command=self.tv_raw.yview)
+        hsb_raw = ttk.Scrollbar(raw_frame, orient="horizontal", command=self.tv_raw.xview)
+        self.tv_raw.configure(yscrollcommand=vsb_raw.set, xscrollcommand=hsb_raw.set)
+        
+        self.tv_raw.grid(row=0, column=0, sticky='nsew')
+        vsb_raw.grid(row=0, column=1, sticky='ns')
+        hsb_raw.grid(row=1, column=0, sticky='ew')
+        raw_frame.grid_rowconfigure(0, weight=1)
+        raw_frame.grid_columnconfigure(0, weight=1)
+
+        # Info righe
+        self.lbl_raw_info = ttk.Label(tab, text="Nessun file caricato", foreground="#555")
+        self.lbl_raw_info.pack(fill=tk.X, padx=10, pady=(5,10))
+
+    def populate_raw_data(self):
+        """Popola la tabella con tutti i dati raw del CSV"""
+        if not self.an:
+            return
+        
+        # Pulisci tabella esistente
+        for item in self.tv_raw.get_children():
+            self.tv_raw.delete(item)
+        
+        # Configura colonne dinamicamente in base all'header del CSV
+        self.tv_raw['columns'] = self.an.header
+        
+        for col in self.an.header:
+            self.tv_raw.heading(col, text=col)
+            # Larghezza adattiva (minimo 80, massimo 200)
+            col_width = min(max(len(col) * 8, 80), 200)
+            self.tv_raw.column(col, width=col_width, anchor=tk.W)
+        
+        # Aggiungi tutte le righe
+        for row in self.an.rows:
+            # Assicurati che la riga abbia lo stesso numero di colonne dell'header
+            padded_row = row + [''] * (len(self.an.header) - len(row))
+            self.tv_raw.insert("", tk.END, values=padded_row[:len(self.an.header)])
+        
+        # Aggiorna info
+        self.lbl_raw_info.config(
+            text=f"Righe totali: {len(self.an.rows)} | Colonne: {len(self.an.header)} | "
+                 f"Periodo: {self.an.min_time.strftime('%Y-%m-%d') if self.an.min_time else 'N/A'} - "
+                 f"{self.an.max_time.strftime('%Y-%m-%d') if self.an.max_time else 'N/A'}"
+        )
+
+    def on_export_raw_csv(self):
+        """Esporta tutti i dati raw in CSV"""
+        if not self.an:
+            return
+        
+        path = filedialog.asksaveasfilename(
+            title="Salva CSV Raw",
+            defaultextension=".csv",
+            initialfile="dati_raw_completi.csv",
+            filetypes=[("CSV", "*.csv"), ("Tutti i file", "*.*")]
+        )
+        if not path:
+            return
+        
+        try:
+            with open(path, 'w', encoding='utf-8', newline='') as f:
+                w = csv.writer(f)
+                w.writerow(self.an.header)
+                w.writerows(self.an.rows)
+            
+            messagebox.showinfo("Esportato", f"File raw salvato in:\n{path}\n\nRighe: {len(self.an.rows)}")
+        except Exception as e:
+            messagebox.showerror("Errore", str(e))
+
     def show_about(self):
         """Mostra finestra About"""
         about = tk.Toplevel(self)
@@ -684,6 +782,113 @@ class App(tk.Tk):
         ttk.Label(frame, text=info_text, font=("Segoe UI", 8), foreground="#555", justify=tk.CENTER).pack(pady=5)
         
         ttk.Button(frame, text="Chiudi", command=about.destroy).pack(pady=(15,10))
+
+    def show_formulas(self):
+        """Mostra finestra con riepilogo formule e logiche di calcolo"""
+        formulas = tk.Toplevel(self)
+        formulas.title("Formule e Calcoli")
+        formulas.geometry("700x600")
+        
+        # Centra
+        formulas.update_idletasks()
+        x = (formulas.winfo_screenwidth() // 2) - (formulas.winfo_width() // 2)
+        y = (formulas.winfo_screenheight() // 2) - (formulas.winfo_height() // 2)
+        formulas.geometry(f"+{x}+{y}")
+        
+        # Frame principale con scrollbar
+        main_frame = ttk.Frame(formulas)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        canvas = tk.Canvas(main_frame)
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Contenuto
+        content = ttk.Frame(scrollable_frame, padding=20)
+        content.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(content, text="Formule e Logiche di Calcolo", font=("Segoe UI", 14, "bold")).pack(pady=(0,15), anchor=tk.W)
+        
+        # Sezione 1: Equivalenze
+        ttk.Label(content, text="1. EQUIVALENZE", font=("Segoe UI", 11, "bold"), foreground="#0066cc").pack(pady=(10,5), anchor=tk.W)
+        ttk.Label(content, text="• Average Gravity = Average Plato", font=("Courier New", 9)).pack(anchor=tk.W, padx=20)
+        ttk.Label(content, text="  (utilizzati come 'Gravity' nei calcoli)", font=("Segoe UI", 8), foreground="#666").pack(anchor=tk.W, padx=20)
+        
+        # Sezione 2: Formula principale
+        ttk.Label(content, text="\n2. FORMULA PRINCIPALE f(A)", font=("Segoe UI", 11, "bold"), foreground="#0066cc").pack(pady=(10,5), anchor=tk.W)
+        ttk.Label(content, text="f(A) = ((0.0000188792 × G + 0.003646886) × G + 1.001077) × G - 0.01223565", 
+                 font=("Courier New", 9), foreground="#cc0000").pack(anchor=tk.W, padx=20)
+        ttk.Label(content, text="Dove: G = Gravity (o Plato) dal CSV", font=("Segoe UI", 8), foreground="#666").pack(anchor=tk.W, padx=20)
+        
+        # Sezione 3: Calcolo Kg estratto
+        ttk.Label(content, text="\n3. CALCOLO Kg ESTRATTO (per riga)", font=("Segoe UI", 11, "bold"), foreground="#0066cc").pack(pady=(10,5), anchor=tk.W)
+        ttk.Label(content, text="Kg estratto = f(A) × Level", font=("Courier New", 9), foreground="#cc0000").pack(anchor=tk.W, padx=20)
+        ttk.Label(content, text="Dove: Level = Volume in hl dal CSV", font=("Segoe UI", 8), foreground="#666").pack(anchor=tk.W, padx=20)
+        
+        # Sezione 4: Aggregazioni
+        ttk.Label(content, text="\n4. AGGREGAZIONI", font=("Segoe UI", 11, "bold"), foreground="#0066cc").pack(pady=(10,5), anchor=tk.W)
+        ttk.Label(content, text="Per Tank:", font=("Segoe UI", 9, "bold")).pack(anchor=tk.W, padx=20, pady=(5,2))
+        ttk.Label(content, text="• Somma di tutti i f(A) nel periodo", font=("Segoe UI", 9)).pack(anchor=tk.W, padx=40)
+        ttk.Label(content, text="• Somma di tutti i Kg estratti nel periodo", font=("Segoe UI", 9)).pack(anchor=tk.W, padx=40)
+        ttk.Label(content, text="• Gravity ultimo = ultimo valore cronologico", font=("Segoe UI", 9)).pack(anchor=tk.W, padx=40)
+        ttk.Label(content, text="• Volume ultimo = ultimo valore cronologico", font=("Segoe UI", 9)).pack(anchor=tk.W, padx=40)
+        
+        ttk.Label(content, text="\nPer Materiale:", font=("Segoe UI", 9, "bold")).pack(anchor=tk.W, padx=20, pady=(5,2))
+        ttk.Label(content, text="• Somma Kg estratti di tutte le righe con quel materiale", font=("Segoe UI", 9)).pack(anchor=tk.W, padx=40)
+        ttk.Label(content, text="• Somma f(A) di tutte le righe con quel materiale", font=("Segoe UI", 9)).pack(anchor=tk.W, padx=40)
+        
+        # Sezione 5: Mapping materiali
+        ttk.Label(content, text="\n5. MAPPING MATERIALI", font=("Segoe UI", 11, "bold"), foreground="#0066cc").pack(pady=(10,5), anchor=tk.W)
+        mappings = [
+            ("7", "ichnusa"),
+            ("8", "non filtrata"),
+            ("9", "cruda"),
+            ("28", "ambra limpida"),
+            ("10", "ich(prop)"),
+            ("0", "vuoto"),
+            ("altro", "mantenuto come nel CSV")
+        ]
+        for code, name in mappings:
+            ttk.Label(content, text=f"• {code} → {name}", font=("Courier New", 9)).pack(anchor=tk.W, padx=20)
+        
+        # Sezione 6: Variazioni
+        ttk.Label(content, text="\n6. CALCOLO VARIAZIONI", font=("Segoe UI", 11, "bold"), foreground="#0066cc").pack(pady=(10,5), anchor=tk.W)
+        ttk.Label(content, text="ΔLevel = Level_corrente - Level_precedente", font=("Courier New", 9), foreground="#cc0000").pack(anchor=tk.W, padx=20)
+        ttk.Label(content, text="ΔKg = Kg_corrente - Kg_precedente", font=("Courier New", 9), foreground="#cc0000").pack(anchor=tk.W, padx=20)
+        ttk.Label(content, text="(calcolato tra misurazioni consecutive dello stesso tank)", font=("Segoe UI", 8), foreground="#666").pack(anchor=tk.W, padx=20)
+        
+        # Sezione 7: Filtri
+        ttk.Label(content, text="\n7. FILTRI APPLICABILI", font=("Segoe UI", 11, "bold"), foreground="#0066cc").pack(pady=(10,5), anchor=tk.W)
+        ttk.Label(content, text="• Giorno singolo (automatico)", font=("Segoe UI", 9)).pack(anchor=tk.W, padx=20)
+        ttk.Label(content, text="• FST / BBT (checkbox)", font=("Segoe UI", 9)).pack(anchor=tk.W, padx=20)
+        ttk.Label(content, text="• Esclusione Material = 0 (opzionale per totali)", font=("Segoe UI", 9)).pack(anchor=tk.W, padx=20)
+        
+        # Note finali
+        ttk.Separator(content, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=15)
+        note_text = ("Nota: Tutti i valori nulli o NaN vengono ignorati nei calcoli.\n"
+                    "I valori negativi di Level vengono trattati come 0.")
+        ttk.Label(content, text=note_text, font=("Segoe UI", 8), foreground="#666", justify=tk.LEFT).pack(anchor=tk.W, pady=5)
+        
+        # Bottone chiudi
+        btn_frame = ttk.Frame(content)
+        btn_frame.pack(fill=tk.X, pady=(15,0))
+        ttk.Button(btn_frame, text="Chiudi", command=formulas.destroy).pack(side=tk.RIGHT)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Binding mousewheel
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
 
     # ---------------------- Giorno singolo ----------------------
     def populate_days(self):
@@ -751,6 +956,7 @@ class App(tk.Tk):
         self.current_file = path
         self.lbl_file.config(text=os.path.basename(path))
         self.populate_days()
+        self.populate_raw_data()  # Popola anche i dati raw
         self.on_apply()
 
     def on_apply(self):
@@ -948,6 +1154,9 @@ class App(tk.Tk):
         for widget in self.charts_frame.winfo_children():
             widget.destroy()
         
+        # Resetta lista figure
+        self.chart_figures = []
+        
         daily_data = self.an.analyze_all_days(
             include_fst=self.b_fst.get(),
             include_bbt=self.b_bbt.get()
@@ -971,6 +1180,7 @@ class App(tk.Tk):
         ax1.grid(True, alpha=0.3)
         ax1.tick_params(axis='x', rotation=45)
         fig1.tight_layout()
+        self.chart_figures.append(fig1)
         
         canvas1 = FigureCanvasTkAgg(fig1, self.charts_frame)
         canvas1.draw()
@@ -1004,6 +1214,7 @@ class App(tk.Tk):
             ax2.grid(True, alpha=0.3)
             ax2.tick_params(axis='x', rotation=45)
             fig2.tight_layout()
+            self.chart_figures.append(fig2)
             
             canvas2 = FigureCanvasTkAgg(fig2, self.charts_frame)
             canvas2.draw()
@@ -1035,10 +1246,66 @@ class App(tk.Tk):
             ax3.grid(True, alpha=0.3)
             ax3.tick_params(axis='x', rotation=45)
             fig3.tight_layout()
+            self.chart_figures.append(fig3)
             
             canvas3 = FigureCanvasTkAgg(fig3, self.charts_frame)
             canvas3.draw()
             canvas3.get_tk_widget().pack(fill=tk.BOTH, expand=True, pady=5)
+
+    def on_export_charts_pdf(self):
+        """Esporta tutti i grafici generati in un file PDF"""
+        if not self.chart_figures:
+            messagebox.showwarning("Attenzione", "Genera prima i grafici cliccando 'Genera Grafici'")
+            return
+        
+        if not _HAS_MATPLOTLIB:
+            messagebox.showerror("Errore", "Matplotlib non disponibile")
+            return
+        
+        path = filedialog.asksaveasfilename(
+            title="Salva Grafici PDF",
+            defaultextension=".pdf",
+            initialfile="grafici_analisi_tank.pdf",
+            filetypes=[("PDF", "*.pdf"), ("Tutti i file", "*.*")]
+        )
+        if not path:
+            return
+        
+        try:
+            with PdfPages(path) as pdf:
+                for fig in self.chart_figures:
+                    pdf.savefig(fig, bbox_inches='tight')
+                
+                # Aggiungi pagina info
+                fig_info = Figure(figsize=(8.5, 11))
+                ax_info = fig_info.add_subplot(111)
+                ax_info.axis('off')
+                
+                info_text = (
+                    f"{APP_TITLE}\n\n"
+                    f"Report Grafici Analisi Tank\n\n"
+                    f"File: {os.path.basename(self.current_file) if self.current_file else 'N/A'}\n"
+                    f"Data generazione: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f"Grafici generati: {len(self.chart_figures)}\n\n"
+                    f"FST inclusi: {'Sì' if self.b_fst.get() else 'No'}\n"
+                    f"BBT inclusi: {'Sì' if self.b_bbt.get() else 'No'}\n\n"
+                    f"──────────────────────────────\n\n"
+                    f"Sviluppato da: {APP_AUTHOR}\n"
+                    f"Dipartimento: {APP_DEPT}\n"
+                    f"Versione: {APP_VERSION}\n"
+                    f"Contatto: {APP_EMAIL}"
+                )
+                
+                ax_info.text(0.5, 0.5, info_text, 
+                           ha='center', va='center',
+                           fontsize=12, family='monospace',
+                           transform=ax_info.transAxes)
+                
+                pdf.savefig(fig_info, bbox_inches='tight')
+            
+            messagebox.showinfo("Esportato", f"Grafici salvati in PDF:\n{path}\n\nPagine: {len(self.chart_figures) + 1}")
+        except Exception as e:
+            messagebox.showerror("Errore", f"Errore durante l'esportazione PDF:\n{str(e)}")
 
     # ---------------------- Totale Cantina ----------------------
     def compute_totals(self):
