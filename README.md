@@ -15,11 +15,13 @@ cd BreweryCellarAnalyze
 Crea un ambiente virtuale:
 python3 -m venv venv
 source venv/bin/activate
-
+```
 
 Installa le dipendenze:
+```bash
 pip install -r requirements.txt
-
+```
 ## 🧰 Dipendenze
-
+```
 Le librerie Python necessarie sono elencate in requirements.txt.
+```
