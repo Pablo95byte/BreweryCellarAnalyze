@@ -11,8 +11,10 @@ Clona il repository:
 ```bash
 git clone https://github.com/Pablo95byte/BreweryCellarAnalyze.git
 cd BreweryCellarAnalyze
+```
 
 Crea un ambiente virtuale:
+``` bash
 python3 -m venv venv
 source venv/bin/activate
 ```
