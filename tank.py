@@ -30,11 +30,16 @@ try:
     matplotlib.use('TkAgg')
     from matplotlib.figure import Figure
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    from matplotlib.backends.backend_pdf import PdfPages
     _HAS_MATPLOTLIB = True
 except Exception:
     _HAS_MATPLOTLIB = False
 
-APP_TITLE = "Analisi Tank – per Tank + per Material + Totale (no SG)"
+APP_TITLE = "Analisi Stock Tank "
+APP_VERSION = "1.1"
+APP_AUTHOR = "PA"
+APP_EMAIL = "paolo_aru@heinekenitalia.it"
+APP_DEPT = "ASS_ST"
 
 # ---------------------- Utility ----------------------
 
@@ -373,9 +378,55 @@ class App(tk.Tk):
         # Single-day state
         self.sel_day = tk.StringVar(value="")
         self.days_list = []
+        
+        # Mostra splash screen
+        self.show_splash()
+        
         self._build()
 
+    def show_splash(self):
+        """Mostra splash screen all'avvio"""
+        splash = tk.Toplevel(self)
+        splash.title("")
+        splash.overrideredirect(True)
+        
+        # Centra la finestra
+        w, h = 400, 250
+        x = (splash.winfo_screenwidth() // 2) - (w // 2)
+        y = (splash.winfo_screenheight() // 2) - (h // 2)
+        splash.geometry(f"{w}x{h}+{x}+{y}")
+        
+        # Contenuto
+        frame = ttk.Frame(splash, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text=APP_TITLE, font=("Segoe UI", 16, "bold")).pack(pady=(20,10))
+        ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
+        ttk.Label(frame, text=f"Versione {APP_VERSION}", font=("Segoe UI", 11)).pack(pady=5)
+        ttk.Label(frame, text=f"Sviluppato da {APP_AUTHOR}", font=("Segoe UI", 10)).pack(pady=5)
+        ttk.Label(frame, text=APP_DEPT, font=("Segoe UI", 9), foreground="#666").pack(pady=2)
+        ttk.Label(frame, text=APP_EMAIL, font=("Segoe UI", 9), foreground="#0066cc").pack(pady=2)
+        ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
+        ttk.Label(frame, text="Caricamento in corso...", font=("Segoe UI", 9), foreground="#999").pack(pady=(10,20))
+        
+        splash.update()
+        
+        # Chiudi dopo 2.5 secondi
+        self.after(2500, splash.destroy)
+
     def _build(self):
+        # Menu bar
+        menubar = tk.Menu(self)
+        self.config(menu=menubar)
+        
+        # Menu Formule
+        menubar.add_command(label="Formule", command=self.show_formulas)
+        
+        # Menu Help
+        help_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="About", command=self.show_about)
+        
         top = ttk.Frame(self)
         top.pack(fill=tk.X, padx=10, pady=10)
         ttk.Button(top, text="Apri CSV...", command=self.on_open).pack(side=tk.LEFT)
@@ -413,12 +464,19 @@ class App(tk.Tk):
         # Tab 3: Grafici (solo se matplotlib disponibile)
         if _HAS_MATPLOTLIB:
             self._build_charts_tab()
+        
+        # Tab 4: Analisi Variazioni
+        self._build_variations_tab()
+        
+        # Tab 5: Dati Raw
+        self._build_raw_data_tab()
 
         actions = ttk.Frame(self)
         actions.pack(fill=tk.X, padx=10, pady=(0,10))
         ttk.Button(actions, text="Esporta per Tank (CSV)", command=self.on_export_tank_csv).pack(side=tk.LEFT)
         ttk.Button(actions, text="Esporta per Materiale (CSV)", command=self.on_export_mat_csv).pack(side=tk.LEFT, padx=(10,0))
         ttk.Button(actions, text="Esporta Debug (CSV)", command=self.on_export_debug_csv).pack(side=tk.LEFT, padx=(10,0))
+        ttk.Button(actions, text="Esporta Variazioni (CSV)", command=self.on_export_variations_csv).pack(side=tk.LEFT, padx=(10,0))
         btnx = ttk.Button(actions, text="Esporta report (XLSX)", command=self.on_export_xlsx)
         if not _HAS_OPENPYXL:
             btnx.state(["disabled"])
@@ -429,7 +487,13 @@ class App(tk.Tk):
             "f(A) = ((0.0000188792*G + 0.003646886)*G + 1.001077)*G - 0.01223565; "
             "Kg estratto (riga) = f(A) * Level. Mapping: 7=ichnusa, 8=non filtrata, 9=cruda, 28=ambra limpida."
         ), foreground="#555")
-        hint.pack(fill=tk.X, padx=10, pady=(0,10))
+        hint.pack(fill=tk.X, padx=10, pady=(0,5))
+        
+        # Footer
+        footer = ttk.Frame(self)
+        footer.pack(fill=tk.X, side=tk.BOTTOM)
+        footer_text = f"Sviluppato da {APP_AUTHOR} ({APP_DEPT}) - v{APP_VERSION} - {APP_EMAIL}"
+        ttk.Label(footer, text=footer_text, foreground="#888", font=("Segoe UI", 8)).pack(pady=5)
 
     def _build_summary_tab(self):
         tab = ttk.Frame(self.notebook)
@@ -527,10 +591,304 @@ class App(tk.Tk):
         btn_frame.pack(fill=tk.X, padx=10, pady=10)
         ttk.Button(btn_frame, text="Genera Grafici", command=self.on_generate_charts).pack(side=tk.LEFT)
         ttk.Label(btn_frame, text="(analizza tutti i giorni disponibili)", foreground="#555").pack(side=tk.LEFT, padx=10)
+        ttk.Button(btn_frame, text="Esporta Grafici (PDF)", command=self.on_export_charts_pdf).pack(side=tk.LEFT, padx=(20,0))
 
         # Frame per i grafici
         self.charts_frame = ttk.Frame(tab)
         self.charts_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0,10))
+        
+        # Variabile per memorizzare le figure
+        self.chart_figures = []
+
+    def _build_variations_tab(self):
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Analisi Variazioni")
+
+        info = ttk.Label(tab, text="Variazioni di livello e perdite tra misurazioni successive nel giorno selezionato", foreground="#555")
+        info.pack(fill=tk.X, padx=10, pady=10)
+
+        # Frame per selezione tank
+        select_frame = ttk.Frame(tab)
+        select_frame.pack(fill=tk.X, padx=10, pady=(0,10))
+        ttk.Label(select_frame, text="Filtra per Tank:").pack(side=tk.LEFT)
+        self.var_filter_tank = tk.StringVar(value="Tutti")
+        self.cb_filter_tank = ttk.Combobox(select_frame, textvariable=self.var_filter_tank, width=15, state="readonly")
+        self.cb_filter_tank['values'] = ["Tutti"]
+        self.cb_filter_tank.pack(side=tk.LEFT, padx=(5,10))
+        self.cb_filter_tank.bind("<<ComboboxSelected>>", lambda e: self.update_variations_table())
+        ttk.Button(select_frame, text="Aggiorna", command=self.update_variations_table).pack(side=tk.LEFT)
+
+        # Tabella variazioni
+        var_frame = ttk.Frame(tab)
+        var_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0,10))
+        
+        cols_v = ("time", "tank", "material", "level_prev", "level_curr", "delta_level", "gravity_prev", "gravity_curr", "kg_prev", "kg_curr", "delta_kg")
+        self.tv_variations = ttk.Treeview(var_frame, columns=cols_v, show="headings", height=20)
+        self.tv_variations.heading("time", text="Timestamp")
+        self.tv_variations.heading("tank", text="Tank")
+        self.tv_variations.heading("material", text="Materiale")
+        self.tv_variations.heading("level_prev", text="Level Prec (hl)")
+        self.tv_variations.heading("level_curr", text="Level Corr (hl)")
+        self.tv_variations.heading("delta_level", text="ΔLevel (hl)")
+        self.tv_variations.heading("gravity_prev", text="Gravity Prec")
+        self.tv_variations.heading("gravity_curr", text="Gravity Corr")
+        self.tv_variations.heading("kg_prev", text="Kg Prec")
+        self.tv_variations.heading("kg_curr", text="Kg Corr")
+        self.tv_variations.heading("delta_kg", text="ΔKg")
+        
+        self.tv_variations.column("time", width=140, anchor=tk.W)
+        self.tv_variations.column("tank", width=70, anchor=tk.W)
+        self.tv_variations.column("material", width=120, anchor=tk.W)
+        self.tv_variations.column("level_prev", width=100, anchor=tk.E)
+        self.tv_variations.column("level_curr", width=100, anchor=tk.E)
+        self.tv_variations.column("delta_level", width=90, anchor=tk.E)
+        self.tv_variations.column("gravity_prev", width=90, anchor=tk.E)
+        self.tv_variations.column("gravity_curr", width=90, anchor=tk.E)
+        self.tv_variations.column("kg_prev", width=90, anchor=tk.E)
+        self.tv_variations.column("kg_curr", width=90, anchor=tk.E)
+        self.tv_variations.column("delta_kg", width=90, anchor=tk.E)
+
+        vsb_v = ttk.Scrollbar(var_frame, orient="vertical", command=self.tv_variations.yview)
+        hsb_v = ttk.Scrollbar(var_frame, orient="horizontal", command=self.tv_variations.xview)
+        self.tv_variations.configure(yscrollcommand=vsb_v.set, xscrollcommand=hsb_v.set)
+        self.tv_variations.grid(row=0, column=0, sticky='nsew')
+        vsb_v.grid(row=0, column=1, sticky='ns')
+        hsb_v.grid(row=1, column=0, sticky='ew')
+        var_frame.grid_rowconfigure(0, weight=1)
+        var_frame.grid_columnconfigure(0, weight=1)
+
+        # Summary variazioni
+        summary_frame = ttk.LabelFrame(tab, text="Riepilogo Variazioni")
+        summary_frame.pack(fill=tk.X, padx=10, pady=(0,10))
+        self.lbl_var_summary = ttk.Label(summary_frame, text="Seleziona un giorno per vedere le variazioni", foreground="#555")
+        self.lbl_var_summary.pack(padx=10, pady=10, anchor=tk.W)
+
+    def _build_raw_data_tab(self):
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Dati Raw")
+
+        info_frame = ttk.Frame(tab)
+        info_frame.pack(fill=tk.X, padx=10, pady=10)
+        ttk.Label(info_frame, text="Visualizzazione di TUTTI i dati grezzi del CSV caricato (nessun filtro applicato)", foreground="#555").pack(side=tk.LEFT)
+        ttk.Button(info_frame, text="Esporta Raw (CSV)", command=self.on_export_raw_csv).pack(side=tk.RIGHT, padx=(10,0))
+        ttk.Button(info_frame, text="Aggiorna", command=self.populate_raw_data).pack(side=tk.RIGHT)
+
+        # Frame con scrollbar orizzontale e verticale
+        raw_frame = ttk.Frame(tab)
+        raw_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0,10))
+        
+        # Crea Treeview senza colonne predefinite (le creeremo dinamicamente)
+        self.tv_raw = ttk.Treeview(raw_frame, show="headings", height=20)
+        
+        vsb_raw = ttk.Scrollbar(raw_frame, orient="vertical", command=self.tv_raw.yview)
+        hsb_raw = ttk.Scrollbar(raw_frame, orient="horizontal", command=self.tv_raw.xview)
+        self.tv_raw.configure(yscrollcommand=vsb_raw.set, xscrollcommand=hsb_raw.set)
+        
+        self.tv_raw.grid(row=0, column=0, sticky='nsew')
+        vsb_raw.grid(row=0, column=1, sticky='ns')
+        hsb_raw.grid(row=1, column=0, sticky='ew')
+        raw_frame.grid_rowconfigure(0, weight=1)
+        raw_frame.grid_columnconfigure(0, weight=1)
+
+        # Info righe
+        self.lbl_raw_info = ttk.Label(tab, text="Nessun file caricato", foreground="#555")
+        self.lbl_raw_info.pack(fill=tk.X, padx=10, pady=(5,10))
+
+    def populate_raw_data(self):
+        """Popola la tabella con tutti i dati raw del CSV"""
+        if not self.an:
+            return
+        
+        # Pulisci tabella esistente
+        for item in self.tv_raw.get_children():
+            self.tv_raw.delete(item)
+        
+        # Configura colonne dinamicamente in base all'header del CSV
+        self.tv_raw['columns'] = self.an.header
+        
+        for col in self.an.header:
+            self.tv_raw.heading(col, text=col)
+            # Larghezza adattiva (minimo 80, massimo 200)
+            col_width = min(max(len(col) * 8, 80), 200)
+            self.tv_raw.column(col, width=col_width, anchor=tk.W)
+        
+        # Aggiungi tutte le righe
+        for row in self.an.rows:
+            # Assicurati che la riga abbia lo stesso numero di colonne dell'header
+            padded_row = row + [''] * (len(self.an.header) - len(row))
+            self.tv_raw.insert("", tk.END, values=padded_row[:len(self.an.header)])
+        
+        # Aggiorna info
+        self.lbl_raw_info.config(
+            text=f"Righe totali: {len(self.an.rows)} | Colonne: {len(self.an.header)} | "
+                 f"Periodo: {self.an.min_time.strftime('%Y-%m-%d') if self.an.min_time else 'N/A'} - "
+                 f"{self.an.max_time.strftime('%Y-%m-%d') if self.an.max_time else 'N/A'}"
+        )
+
+    def on_export_raw_csv(self):
+        """Esporta tutti i dati raw in CSV"""
+        if not self.an:
+            return
+        
+        path = filedialog.asksaveasfilename(
+            title="Salva CSV Raw",
+            defaultextension=".csv",
+            initialfile="dati_raw_completi.csv",
+            filetypes=[("CSV", "*.csv"), ("Tutti i file", "*.*")]
+        )
+        if not path:
+            return
+        
+        try:
+            with open(path, 'w', encoding='utf-8', newline='') as f:
+                w = csv.writer(f)
+                w.writerow(self.an.header)
+                w.writerows(self.an.rows)
+            
+            messagebox.showinfo("Esportato", f"File raw salvato in:\n{path}\n\nRighe: {len(self.an.rows)}")
+        except Exception as e:
+            messagebox.showerror("Errore", str(e))
+
+    def show_about(self):
+        """Mostra finestra About"""
+        about = tk.Toplevel(self)
+        about.title("About")
+        about.resizable(False, False)
+        about.geometry("400x300")
+        
+        # Centra
+        about.update_idletasks()
+        x = (about.winfo_screenwidth() // 2) - (about.winfo_width() // 2)
+        y = (about.winfo_screenheight() // 2) - (about.winfo_height() // 2)
+        about.geometry(f"+{x}+{y}")
+        
+        frame = ttk.Frame(about, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text=APP_TITLE, font=("Segoe UI", 14, "bold")).pack(pady=(10,5))
+        ttk.Label(frame, text=f"Versione {APP_VERSION}", font=("Segoe UI", 10)).pack(pady=5)
+        
+        ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=15)
+        
+        ttk.Label(frame, text="Sviluppato da:", font=("Segoe UI", 9, "bold")).pack(pady=(5,2))
+        ttk.Label(frame, text=APP_AUTHOR, font=("Segoe UI", 10)).pack(pady=2)
+        ttk.Label(frame, text=APP_DEPT, font=("Segoe UI", 9), foreground="#666").pack(pady=2)
+        ttk.Label(frame, text=APP_EMAIL, font=("Segoe UI", 9), foreground="#0066cc").pack(pady=2)
+        
+        ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=15)
+        
+        info_text = ("Tool per l'analisi di tank FST/BBT con calcolo\n"
+                    "estratto, variazioni di livello e grafici temporali.")
+        ttk.Label(frame, text=info_text, font=("Segoe UI", 8), foreground="#555", justify=tk.CENTER).pack(pady=5)
+        
+        ttk.Button(frame, text="Chiudi", command=about.destroy).pack(pady=(15,10))
+
+    def show_formulas(self):
+        """Mostra finestra con riepilogo formule e logiche di calcolo"""
+        formulas = tk.Toplevel(self)
+        formulas.title("Formule e Calcoli")
+        formulas.geometry("700x600")
+        
+        # Centra
+        formulas.update_idletasks()
+        x = (formulas.winfo_screenwidth() // 2) - (formulas.winfo_width() // 2)
+        y = (formulas.winfo_screenheight() // 2) - (formulas.winfo_height() // 2)
+        formulas.geometry(f"+{x}+{y}")
+        
+        # Frame principale con scrollbar
+        main_frame = ttk.Frame(formulas)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        canvas = tk.Canvas(main_frame)
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Contenuto
+        content = ttk.Frame(scrollable_frame, padding=20)
+        content.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(content, text="Formule e Logiche di Calcolo", font=("Segoe UI", 14, "bold")).pack(pady=(0,15), anchor=tk.W)
+        
+        # Sezione 1: Equivalenze
+        ttk.Label(content, text="1. EQUIVALENZE", font=("Segoe UI", 11, "bold"), foreground="#0066cc").pack(pady=(10,5), anchor=tk.W)
+        ttk.Label(content, text="• Average Gravity = Average Plato", font=("Courier New", 9)).pack(anchor=tk.W, padx=20)
+        ttk.Label(content, text="  (utilizzati come 'Gravity' nei calcoli)", font=("Segoe UI", 8), foreground="#666").pack(anchor=tk.W, padx=20)
+        
+        # Sezione 2: Formula principale
+        ttk.Label(content, text="\n2. FORMULA PRINCIPALE f(A)", font=("Segoe UI", 11, "bold"), foreground="#0066cc").pack(pady=(10,5), anchor=tk.W)
+        ttk.Label(content, text="f(A) = ((0.0000188792 × G + 0.003646886) × G + 1.001077) × G - 0.01223565", 
+                 font=("Courier New", 9), foreground="#cc0000").pack(anchor=tk.W, padx=20)
+        ttk.Label(content, text="Dove: G = Gravity (o Plato) dal CSV", font=("Segoe UI", 8), foreground="#666").pack(anchor=tk.W, padx=20)
+        
+        # Sezione 3: Calcolo Kg estratto
+        ttk.Label(content, text="\n3. CALCOLO Kg ESTRATTO (per riga)", font=("Segoe UI", 11, "bold"), foreground="#0066cc").pack(pady=(10,5), anchor=tk.W)
+        ttk.Label(content, text="Kg estratto = f(A) × Level", font=("Courier New", 9), foreground="#cc0000").pack(anchor=tk.W, padx=20)
+        ttk.Label(content, text="Dove: Level = Volume in hl dal CSV", font=("Segoe UI", 8), foreground="#666").pack(anchor=tk.W, padx=20)
+        
+        # Sezione 4: Aggregazioni
+        ttk.Label(content, text="\n4. AGGREGAZIONI", font=("Segoe UI", 11, "bold"), foreground="#0066cc").pack(pady=(10,5), anchor=tk.W)
+        ttk.Label(content, text="Per Tank:", font=("Segoe UI", 9, "bold")).pack(anchor=tk.W, padx=20, pady=(5,2))
+        ttk.Label(content, text="• Somma di tutti i f(A) nel periodo", font=("Segoe UI", 9)).pack(anchor=tk.W, padx=40)
+        ttk.Label(content, text="• Somma di tutti i Kg estratti nel periodo", font=("Segoe UI", 9)).pack(anchor=tk.W, padx=40)
+        ttk.Label(content, text="• Gravity ultimo = ultimo valore cronologico", font=("Segoe UI", 9)).pack(anchor=tk.W, padx=40)
+        ttk.Label(content, text="• Volume ultimo = ultimo valore cronologico", font=("Segoe UI", 9)).pack(anchor=tk.W, padx=40)
+        
+        ttk.Label(content, text="\nPer Materiale:", font=("Segoe UI", 9, "bold")).pack(anchor=tk.W, padx=20, pady=(5,2))
+        ttk.Label(content, text="• Somma Kg estratti di tutte le righe con quel materiale", font=("Segoe UI", 9)).pack(anchor=tk.W, padx=40)
+        ttk.Label(content, text="• Somma f(A) di tutte le righe con quel materiale", font=("Segoe UI", 9)).pack(anchor=tk.W, padx=40)
+        
+        # Sezione 5: Mapping materiali
+        ttk.Label(content, text="\n5. MAPPING MATERIALI", font=("Segoe UI", 11, "bold"), foreground="#0066cc").pack(pady=(10,5), anchor=tk.W)
+        mappings = [
+            ("7", "ichnusa"),
+            ("8", "non filtrata"),
+            ("9", "cruda"),
+            ("28", "ambra limpida"),
+            ("10", "ich(prop)"),
+            ("0", "vuoto"),
+            ("altro", "mantenuto come nel CSV")
+        ]
+        for code, name in mappings:
+            ttk.Label(content, text=f"• {code} → {name}", font=("Courier New", 9)).pack(anchor=tk.W, padx=20)
+        
+        # Sezione 6: Variazioni
+        ttk.Label(content, text="\n6. CALCOLO VARIAZIONI", font=("Segoe UI", 11, "bold"), foreground="#0066cc").pack(pady=(10,5), anchor=tk.W)
+        ttk.Label(content, text="ΔLevel = Level_corrente - Level_precedente", font=("Courier New", 9), foreground="#cc0000").pack(anchor=tk.W, padx=20)
+        ttk.Label(content, text="ΔKg = Kg_corrente - Kg_precedente", font=("Courier New", 9), foreground="#cc0000").pack(anchor=tk.W, padx=20)
+        ttk.Label(content, text="(calcolato tra misurazioni consecutive dello stesso tank)", font=("Segoe UI", 8), foreground="#666").pack(anchor=tk.W, padx=20)
+        
+        # Sezione 7: Filtri
+        ttk.Label(content, text="\n7. FILTRI APPLICABILI", font=("Segoe UI", 11, "bold"), foreground="#0066cc").pack(pady=(10,5), anchor=tk.W)
+        ttk.Label(content, text="• Giorno singolo (automatico)", font=("Segoe UI", 9)).pack(anchor=tk.W, padx=20)
+        ttk.Label(content, text="• FST / BBT (checkbox)", font=("Segoe UI", 9)).pack(anchor=tk.W, padx=20)
+        ttk.Label(content, text="• Esclusione Material = 0 (opzionale per totali)", font=("Segoe UI", 9)).pack(anchor=tk.W, padx=20)
+        
+        # Note finali
+        ttk.Separator(content, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=15)
+        note_text = ("Nota: Tutti i valori nulli o NaN vengono ignorati nei calcoli.\n"
+                    "I valori negativi di Level vengono trattati come 0.")
+        ttk.Label(content, text=note_text, font=("Segoe UI", 8), foreground="#666", justify=tk.LEFT).pack(anchor=tk.W, pady=5)
+        
+        # Bottone chiudi
+        btn_frame = ttk.Frame(content)
+        btn_frame.pack(fill=tk.X, pady=(15,0))
+        ttk.Button(btn_frame, text="Chiudi", command=formulas.destroy).pack(side=tk.RIGHT)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Binding mousewheel
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
 
     # ---------------------- Giorno singolo ----------------------
     def populate_days(self):
@@ -598,6 +956,7 @@ class App(tk.Tk):
         self.current_file = path
         self.lbl_file.config(text=os.path.basename(path))
         self.populate_days()
+        self.populate_raw_data()  # Popola anche i dati raw
         self.on_apply()
 
     def on_apply(self):
@@ -666,6 +1025,116 @@ class App(tk.Tk):
 
         # Aggiorna eventuale finestra totale aperta
         self.refresh_total_window()
+        
+        # Aggiorna tabella variazioni
+        self.update_variations_table()
+
+    def update_variations_table(self):
+        """Calcola e mostra le variazioni di livello e Kg tra misurazioni successive"""
+        if not self._cache_debug:
+            return
+        
+        # Pulisci tabella
+        for r in self.tv_variations.get_children():
+            self.tv_variations.delete(r)
+        
+        # Raggruppa per tank
+        by_tank = defaultdict(list)
+        for dt, tank, mat, g, v, fa, kg in self._cache_debug:
+            by_tank[tank].append((dt, mat, g, v, fa, kg))
+        
+        # Ordina per timestamp
+        for tank in by_tank:
+            by_tank[tank].sort(key=lambda x: x[0] if x[0] else datetime.min)
+        
+        # Aggiorna lista tank disponibili
+        all_tanks = sorted(by_tank.keys())
+        self.cb_filter_tank['values'] = ["Tutti"] + all_tanks
+        
+        # Filtra per tank selezionato
+        filter_tank = self.var_filter_tank.get()
+        if filter_tank != "Tutti" and filter_tank in by_tank:
+            tanks_to_show = {filter_tank: by_tank[filter_tank]}
+        else:
+            tanks_to_show = by_tank
+        
+        # Calcola variazioni
+        variations = []
+        total_delta_level = 0.0
+        total_delta_kg = 0.0
+        max_increase_level = 0.0
+        max_decrease_level = 0.0
+        max_increase_kg = 0.0
+        max_decrease_kg = 0.0
+        
+        for tank, measurements in tanks_to_show.items():
+            for i in range(1, len(measurements)):
+                prev = measurements[i-1]
+                curr = measurements[i]
+                
+                dt_prev, mat_prev, g_prev, v_prev, fa_prev, kg_prev = prev
+                dt_curr, mat_curr, g_curr, v_curr, fa_curr, kg_curr = curr
+                
+                delta_level = v_curr - v_prev if (v_curr is not None and v_prev is not None) else None
+                delta_kg = kg_curr - kg_prev
+                
+                if delta_level is not None:
+                    total_delta_level += delta_level
+                    if delta_level > max_increase_level:
+                        max_increase_level = delta_level
+                    if delta_level < max_decrease_level:
+                        max_decrease_level = delta_level
+                
+                total_delta_kg += delta_kg
+                if delta_kg > max_increase_kg:
+                    max_increase_kg = delta_kg
+                if delta_kg < max_decrease_kg:
+                    max_decrease_kg = delta_kg
+                
+                # Colora le righe in base alla variazione
+                tag = ""
+                if delta_level is not None:
+                    if delta_level < -10:  # Calo significativo
+                        tag = "decrease"
+                    elif delta_level > 10:  # Aumento significativo
+                        tag = "increase"
+                
+                item = self.tv_variations.insert("", tk.END, values=(
+                    dt_curr.strftime("%Y-%m-%d %H:%M:%S") if dt_curr else "",
+                    tank,
+                    mat_curr,
+                    fmt_it(v_prev, 2) if v_prev is not None else "",
+                    fmt_it(v_curr, 2) if v_curr is not None else "",
+                    fmt_it(delta_level, 2) if delta_level is not None else "",
+                    fmt_it(g_prev, 2) if g_prev is not None else "",
+                    fmt_it(g_curr, 2) if g_curr is not None else "",
+                    fmt_it(kg_prev, 3),
+                    fmt_it(kg_curr, 3),
+                    fmt_it(delta_kg, 3)
+                ), tags=(tag,))
+                
+                variations.append((dt_curr, tank, mat_curr, v_prev, v_curr, delta_level, g_prev, g_curr, kg_prev, kg_curr, delta_kg))
+        
+        # Configura colori
+        self.tv_variations.tag_configure("decrease", background="#ffcccc")  # Rosso chiaro
+        self.tv_variations.tag_configure("increase", background="#ccffcc")  # Verde chiaro
+        
+        # Aggiorna summary
+        num_variations = len(variations)
+        if num_variations > 0:
+            summary_text = (
+                f"Variazioni totali: {num_variations} | "
+                f"ΔLevel totale: {fmt_it(total_delta_level, 2)} hl | "
+                f"ΔKg totale: {fmt_it(total_delta_kg, 3)} kg\n"
+                f"Max aumento level: {fmt_it(max_increase_level, 2)} hl | "
+                f"Max calo level: {fmt_it(max_decrease_level, 2)} hl | "
+                f"Max aumento Kg: {fmt_it(max_increase_kg, 3)} kg | "
+                f"Max perdita Kg: {fmt_it(max_decrease_kg, 3)} kg"
+            )
+        else:
+            summary_text = "Nessuna variazione disponibile"
+        
+        self.lbl_var_summary.config(text=summary_text)
 
     def _parse_date(self, s):
         s = str(s).strip()
@@ -684,6 +1153,9 @@ class App(tk.Tk):
         # Cancella grafici precedenti
         for widget in self.charts_frame.winfo_children():
             widget.destroy()
+        
+        # Resetta lista figure
+        self.chart_figures = []
         
         daily_data = self.an.analyze_all_days(
             include_fst=self.b_fst.get(),
@@ -708,6 +1180,7 @@ class App(tk.Tk):
         ax1.grid(True, alpha=0.3)
         ax1.tick_params(axis='x', rotation=45)
         fig1.tight_layout()
+        self.chart_figures.append(fig1)
         
         canvas1 = FigureCanvasTkAgg(fig1, self.charts_frame)
         canvas1.draw()
@@ -741,6 +1214,7 @@ class App(tk.Tk):
             ax2.grid(True, alpha=0.3)
             ax2.tick_params(axis='x', rotation=45)
             fig2.tight_layout()
+            self.chart_figures.append(fig2)
             
             canvas2 = FigureCanvasTkAgg(fig2, self.charts_frame)
             canvas2.draw()
@@ -772,10 +1246,66 @@ class App(tk.Tk):
             ax3.grid(True, alpha=0.3)
             ax3.tick_params(axis='x', rotation=45)
             fig3.tight_layout()
+            self.chart_figures.append(fig3)
             
             canvas3 = FigureCanvasTkAgg(fig3, self.charts_frame)
             canvas3.draw()
             canvas3.get_tk_widget().pack(fill=tk.BOTH, expand=True, pady=5)
+
+    def on_export_charts_pdf(self):
+        """Esporta tutti i grafici generati in un file PDF"""
+        if not self.chart_figures:
+            messagebox.showwarning("Attenzione", "Genera prima i grafici cliccando 'Genera Grafici'")
+            return
+        
+        if not _HAS_MATPLOTLIB:
+            messagebox.showerror("Errore", "Matplotlib non disponibile")
+            return
+        
+        path = filedialog.asksaveasfilename(
+            title="Salva Grafici PDF",
+            defaultextension=".pdf",
+            initialfile="grafici_analisi_tank.pdf",
+            filetypes=[("PDF", "*.pdf"), ("Tutti i file", "*.*")]
+        )
+        if not path:
+            return
+        
+        try:
+            with PdfPages(path) as pdf:
+                for fig in self.chart_figures:
+                    pdf.savefig(fig, bbox_inches='tight')
+                
+                # Aggiungi pagina info
+                fig_info = Figure(figsize=(8.5, 11))
+                ax_info = fig_info.add_subplot(111)
+                ax_info.axis('off')
+                
+                info_text = (
+                    f"{APP_TITLE}\n\n"
+                    f"Report Grafici Analisi Tank\n\n"
+                    f"File: {os.path.basename(self.current_file) if self.current_file else 'N/A'}\n"
+                    f"Data generazione: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f"Grafici generati: {len(self.chart_figures)}\n\n"
+                    f"FST inclusi: {'Sì' if self.b_fst.get() else 'No'}\n"
+                    f"BBT inclusi: {'Sì' if self.b_bbt.get() else 'No'}\n\n"
+                    f"──────────────────────────────\n\n"
+                    f"Sviluppato da: {APP_AUTHOR}\n"
+                    f"Dipartimento: {APP_DEPT}\n"
+                    f"Versione: {APP_VERSION}\n"
+                    f"Contatto: {APP_EMAIL}"
+                )
+                
+                ax_info.text(0.5, 0.5, info_text, 
+                           ha='center', va='center',
+                           fontsize=12, family='monospace',
+                           transform=ax_info.transAxes)
+                
+                pdf.savefig(fig_info, bbox_inches='tight')
+            
+            messagebox.showinfo("Esportato", f"Grafici salvati in PDF:\n{path}\n\nPagine: {len(self.chart_figures) + 1}")
+        except Exception as e:
+            messagebox.showerror("Errore", f"Errore durante l'esportazione PDF:\n{str(e)}")
 
     # ---------------------- Totale Cantina ----------------------
     def compute_totals(self):
@@ -906,6 +1436,63 @@ class App(tk.Tk):
         except Exception as e:
             messagebox.showerror("Errore", str(e))
 
+    def on_export_variations_csv(self):
+        """Esporta le variazioni in CSV"""
+        if not self._cache_debug:
+            return
+        
+        path = filedialog.asksaveasfilename(
+            title="Salva CSV Variazioni",
+            defaultextension=".csv",
+            initialfile="variazioni_level_kg.csv",
+            filetypes=[("CSV", "*.csv"), ("Tutti i file", "*.*")]
+        )
+        if not path:
+            return
+        
+        try:
+            # Calcola variazioni
+            by_tank = defaultdict(list)
+            for dt, tank, mat, g, v, fa, kg in self._cache_debug:
+                by_tank[tank].append((dt, mat, g, v, fa, kg))
+            
+            for tank in by_tank:
+                by_tank[tank].sort(key=lambda x: x[0] if x[0] else datetime.min)
+            
+            with open(path, 'w', encoding='utf-8', newline='') as f:
+                w = csv.writer(f)
+                w.writerow(['Timestamp','Tank','Materiale','Level_Prec_hl','Level_Corr_hl','Delta_Level_hl',
+                           'Gravity_Prec','Gravity_Corr','Kg_Prec','Kg_Corr','Delta_Kg'])
+                
+                for tank, measurements in sorted(by_tank.items()):
+                    for i in range(1, len(measurements)):
+                        prev = measurements[i-1]
+                        curr = measurements[i]
+                        
+                        dt_prev, mat_prev, g_prev, v_prev, fa_prev, kg_prev = prev
+                        dt_curr, mat_curr, g_curr, v_curr, fa_curr, kg_curr = curr
+                        
+                        delta_level = v_curr - v_prev if (v_curr is not None and v_prev is not None) else None
+                        delta_kg = kg_curr - kg_prev
+                        
+                        w.writerow([
+                            dt_curr.strftime("%Y-%m-%d %H:%M:%S") if dt_curr else "",
+                            tank,
+                            mat_curr,
+                            f"{v_prev:.2f}" if v_prev is not None else "",
+                            f"{v_curr:.2f}" if v_curr is not None else "",
+                            f"{delta_level:.2f}" if delta_level is not None else "",
+                            f"{g_prev:.2f}" if g_prev is not None else "",
+                            f"{g_curr:.2f}" if g_curr is not None else "",
+                            f"{kg_prev:.3f}",
+                            f"{kg_curr:.3f}",
+                            f"{delta_kg:.3f}"
+                        ])
+            
+            messagebox.showinfo("Esportato", f"File salvato in:\n{path}")
+        except Exception as e:
+            messagebox.showerror("Errore", str(e))
+
     def on_export_xlsx(self):
         if not self._cache_mat and not self._cache_tank:
             return
@@ -953,6 +1540,43 @@ class App(tk.Tk):
                     float(f"{kg:.3f}")
                 ])
 
+            # Foglio Variazioni
+            ws_var = wb.create_sheet('Variazioni')
+            ws_var.append(['Timestamp','Tank','Materiale','Level_Prec_hl','Level_Corr_hl','Delta_Level_hl',
+                          'Gravity_Prec','Gravity_Corr','Kg_Prec','Kg_Corr','Delta_Kg'])
+            
+            by_tank = defaultdict(list)
+            for dt, tank, mat, g, v, fa, kg in self._cache_debug:
+                by_tank[tank].append((dt, mat, g, v, fa, kg))
+            
+            for tank in by_tank:
+                by_tank[tank].sort(key=lambda x: x[0] if x[0] else datetime.min)
+            
+            for tank, measurements in sorted(by_tank.items()):
+                for i in range(1, len(measurements)):
+                    prev = measurements[i-1]
+                    curr = measurements[i]
+                    
+                    dt_prev, mat_prev, g_prev, v_prev, fa_prev, kg_prev = prev
+                    dt_curr, mat_curr, g_curr, v_curr, fa_curr, kg_curr = curr
+                    
+                    delta_level = v_curr - v_prev if (v_curr is not None and v_prev is not None) else None
+                    delta_kg = kg_curr - kg_prev
+                    
+                    ws_var.append([
+                        dt_curr.strftime("%Y-%m-%d %H:%M:%S") if dt_curr else "",
+                        tank,
+                        mat_curr,
+                        float(f"{v_prev:.2f}") if v_prev is not None else None,
+                        float(f"{v_curr:.2f}") if v_curr is not None else None,
+                        float(f"{delta_level:.2f}") if delta_level is not None else None,
+                        float(f"{g_prev:.2f}") if g_prev is not None else None,
+                        float(f"{g_curr:.2f}") if g_curr is not None else None,
+                        float(f"{kg_prev:.3f}"),
+                        float(f"{kg_curr:.3f}"),
+                        float(f"{delta_kg:.3f}")
+                    ])
+
             ws4 = wb.create_sheet('Note')
             ws4.append(['Descrizione','Valore'])
             ws4.append(['Equivalenza', "'Average Gravity' == 'Average Plato' (usati come 'Gravity')"])
@@ -963,6 +1587,12 @@ class App(tk.Tk):
             excl = 'sì' if self.var_exclude_mat0.get() else 'no'
             ws4.append(['Totale Cantina', f"Material=0 escluso: {excl}"])
             ws4.append(['Modalità', 'Giorno singolo'])
+            ws4.append(['', ''])
+            ws4.append(['Tool Info', ''])
+            ws4.append(['Sviluppato da', APP_AUTHOR])
+            ws4.append(['Dipartimento', APP_DEPT])
+            ws4.append(['Versione', APP_VERSION])
+            ws4.append(['Contatto', APP_EMAIL])
 
             wb.save(path)
             messagebox.showinfo("Esportato", f"File salvato in:\n{path}")
