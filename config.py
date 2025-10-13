@@ -5,10 +5,10 @@ Configurazioni centrali per Tank Analysis Tool
 """
 
 # ============= INFO APPLICAZIONE =============
-APP_TITLE = "Analisi Tank – per Tank + per Material + Totale (no SG)"
-APP_VERSION = "1.0"
+APP_TITLE = "Analisi Tank - Stock Cantina"
+APP_VERSION = "1.2"
 APP_AUTHOR = "PA"
-APP_EMAIL = "PA@HE.IT"
+APP_EMAIL = "Paolo_aru@heinekenitalia.it"
 APP_DEPT = "ASS_ST"
 
 # ============= MAPPING MATERIALI =============
