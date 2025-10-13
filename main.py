@@ -741,95 +741,69 @@ class TankAnalysisApp(tk.Tk):
     # ==================== VARIAZIONI ====================
     
     def update_variations_table(self):
-        """Aggiorna tabella variazioni"""
-        # Debug: stampa info
-        print(f"[DEBUG] update_variations_table chiamato. Cache debug size: {len(self._cache_debug)}")
-        
-        if not self._cache_debug:
-            # Se non ci sono dati debug, pulisci la tabella e mostra messaggio
-            for r in self.tv_variations.get_children():
-                self.tv_variations.delete(r)
-            self.lbl_var_summary.config(text="Nessun dato disponibile. Carica un CSV e seleziona un giorno.")
-            return
-        
+        """Aggiorna tabella variazioni con i dati calcolati"""
+        # Pulisci tabella
         for r in self.tv_variations.get_children():
             self.tv_variations.delete(r)
         
-        by_tank = defaultdict(list)
-        for dt, tank, mat, g, v, fa, kg in self._cache_debug:
-            by_tank[tank].append((dt, mat, g, v, fa, kg))
+        if not hasattr(self, '_cache_variations') or not self._cache_variations:
+            self.lbl_var_summary.config(text="Nessuna variazione caricata. Clicca 'Carica Variazioni'.")
+            return
         
-        print(f"[DEBUG] Tank raggruppati: {len(by_tank)}")
-        
-        for tank in by_tank:
-            by_tank[tank].sort(key=lambda x: x[0] if x[0] else datetime.min)
-        
-        all_tanks = sorted(by_tank.keys())
+        # Aggiorna lista tank disponibili
+        all_tanks = sorted(set(v[1] for v in self._cache_variations))
         self.cb_filter_tank['values'] = ["Tutti"] + all_tanks
         
-        print(f"[DEBUG] Tank disponibili per filtro: {len(all_tanks)}")
-        
+        # Filtra per tank selezionato
         filter_tank = self.var_filter_tank.get()
-        if filter_tank != "Tutti" and filter_tank in by_tank:
-            tanks_to_show = {filter_tank: by_tank[filter_tank]}
+        if filter_tank != "Tutti":
+            variations_to_show = [v for v in self._cache_variations if v[1] == filter_tank]
         else:
-            tanks_to_show = by_tank
+            variations_to_show = self._cache_variations
         
+        # Statistiche
         total_delta_level = 0.0
         total_delta_kg = 0.0
         max_increase_level = 0.0
         max_decrease_level = 0.0
         max_increase_kg = 0.0
         max_decrease_kg = 0.0
-        num_variations = 0
         
-        for tank, measurements in tanks_to_show.items():
-            print(f"[DEBUG] Tank {tank}: {len(measurements)} misurazioni")
-            for i in range(1, len(measurements)):
-                prev = measurements[i-1]
-                curr = measurements[i]
-                
-                dt_prev, mat_prev, g_prev, v_prev, fa_prev, kg_prev = prev
-                dt_curr, mat_curr, g_curr, v_curr, fa_curr, kg_curr = curr
-                
-                delta_level = v_curr - v_prev if (v_curr is not None and v_prev is not None) else None
-                delta_kg = kg_curr - kg_prev
-                
-                if delta_level is not None:
-                    total_delta_level += delta_level
-                    max_increase_level = max(max_increase_level, delta_level)
-                    max_decrease_level = min(max_decrease_level, delta_level)
-                
-                total_delta_kg += delta_kg
-                max_increase_kg = max(max_increase_kg, delta_kg)
-                max_decrease_kg = min(max_decrease_kg, delta_kg)
-                num_variations += 1
-                
-                tag = ""
-                if delta_level is not None:
-                    if delta_level < -THRESHOLDS['significant_level_change']:
-                        tag = "decrease"
-                    elif delta_level > THRESHOLDS['significant_level_change']:
-                        tag = "increase"
-                
-                self.tv_variations.insert("", tk.END, values=(
-                    dt_curr.strftime("%Y-%m-%d %H:%M:%S") if dt_curr else "",
-                    tank, mat_curr,
-                    fmt_it(v_prev, 2) if v_prev is not None else "",
-                    fmt_it(v_curr, 2) if v_curr is not None else "",
-                    fmt_it(delta_level, 2) if delta_level is not None else "",
-                    fmt_it(g_prev, 2) if g_prev is not None else "",
-                    fmt_it(g_curr, 2) if g_curr is not None else "",
-                    fmt_it(kg_prev, 3), fmt_it(kg_curr, 3), fmt_it(delta_kg, 3)
-                ), tags=(tag,))
+        for var in variations_to_show:
+            curr_day, tank, mat_curr, v_prev, v_curr, delta_level, g_prev, g_curr, kg_prev, kg_curr, delta_kg = var
+            
+            if delta_level is not None:
+                total_delta_level += delta_level
+                max_increase_level = max(max_increase_level, delta_level)
+                max_decrease_level = min(max_decrease_level, delta_level)
+            
+            total_delta_kg += delta_kg
+            max_increase_kg = max(max_increase_kg, delta_kg)
+            max_decrease_kg = min(max_decrease_kg, delta_kg)
+            
+            # Tag per colore
+            tag = ""
+            if delta_level is not None:
+                if delta_level < -THRESHOLDS['significant_level_change']:
+                    tag = "decrease"
+                elif delta_level > THRESHOLDS['significant_level_change']:
+                    tag = "increase"
+            
+            self.tv_variations.insert("", tk.END, values=(
+                curr_day, tank, mat_curr,
+                fmt_it(v_prev, 2) if v_prev is not None else "",
+                fmt_it(v_curr, 2) if v_curr is not None else "",
+                fmt_it(delta_level, 2) if delta_level is not None else "",
+                fmt_it(g_prev, 2) if g_prev is not None else "",
+                fmt_it(g_curr, 2) if g_curr is not None else "",
+                fmt_it(kg_prev, 3), fmt_it(kg_curr, 3), fmt_it(delta_kg, 3)
+            ), tags=(tag,))
         
-        print(f"[DEBUG] Variazioni inserite: {num_variations}")
-        
-        # Non serve riconfigurare i tag colori qui, sono già configurati in _build_variations_tab()
+        num_variations = len(variations_to_show)
         
         if num_variations > 0:
             summary = (
-                f"Variazioni totali: {num_variations} | "
+                f"Variazioni giornaliere: {num_variations} | "
                 f"ΔLevel totale: {fmt_it(total_delta_level, 2)} hl | "
                 f"ΔKg totale: {fmt_it(total_delta_kg, 3)} kg\n"
                 f"Max aumento level: {fmt_it(max_increase_level, 2)} hl | "
@@ -841,7 +815,7 @@ class TankAnalysisApp(tk.Tk):
             summary = "Nessuna variazione disponibile"
         
         self.lbl_var_summary.config(text=summary)
-        print(f"[DEBUG] Summary aggiornato: {summary[:50]}...")
+        print(f"[DEBUG] Variazioni visualizzate: {num_variations}")
     
     # ==================== DATI RAW ====================
     
