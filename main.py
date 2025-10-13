@@ -162,12 +162,15 @@ class TankAnalysisApp(tk.Tk):
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0,10))
         
+        # Tab sempre presenti
         self._build_summary_tab()
         self._build_debug_tab()
-        if HAS_MATPLOTLIB:
-            self._build_charts_tab()
         self._build_variations_tab()
         self._build_raw_data_tab()
+        
+        # Tab grafici solo se matplotlib disponibile
+        if HAS_MATPLOTLIB:
+            self._build_charts_tab()
     
     def _build_actions(self):
         """Bottoni azioni"""
@@ -605,7 +608,14 @@ class TankAnalysisApp(tk.Tk):
     
     def update_variations_table(self):
         """Aggiorna tabella variazioni"""
+        # Debug: stampa info
+        print(f"[DEBUG] update_variations_table chiamato. Cache debug size: {len(self._cache_debug)}")
+        
         if not self._cache_debug:
+            # Se non ci sono dati debug, pulisci la tabella e mostra messaggio
+            for r in self.tv_variations.get_children():
+                self.tv_variations.delete(r)
+            self.lbl_var_summary.config(text="Nessun dato disponibile. Carica un CSV e seleziona un giorno.")
             return
         
         for r in self.tv_variations.get_children():
@@ -615,11 +625,15 @@ class TankAnalysisApp(tk.Tk):
         for dt, tank, mat, g, v, fa, kg in self._cache_debug:
             by_tank[tank].append((dt, mat, g, v, fa, kg))
         
+        print(f"[DEBUG] Tank raggruppati: {len(by_tank)}")
+        
         for tank in by_tank:
             by_tank[tank].sort(key=lambda x: x[0] if x[0] else datetime.min)
         
         all_tanks = sorted(by_tank.keys())
         self.cb_filter_tank['values'] = ["Tutti"] + all_tanks
+        
+        print(f"[DEBUG] Tank disponibili per filtro: {len(all_tanks)}")
         
         filter_tank = self.var_filter_tank.get()
         if filter_tank != "Tutti" and filter_tank in by_tank:
@@ -636,6 +650,7 @@ class TankAnalysisApp(tk.Tk):
         num_variations = 0
         
         for tank, measurements in tanks_to_show.items():
+            print(f"[DEBUG] Tank {tank}: {len(measurements)} misurazioni")
             for i in range(1, len(measurements)):
                 prev = measurements[i-1]
                 curr = measurements[i]
@@ -674,8 +689,9 @@ class TankAnalysisApp(tk.Tk):
                     fmt_it(kg_prev, 3), fmt_it(kg_curr, 3), fmt_it(delta_kg, 3)
                 ), tags=(tag,))
         
-        self.tv_variations.tag_configure("decrease", background=COLORS['decrease'])
-        self.tv_variations.tag_configure("increase", background=COLORS['increase'])
+        print(f"[DEBUG] Variazioni inserite: {num_variations}")
+        
+        # Non serve riconfigurare i tag colori qui, sono già configurati in _build_variations_tab()
         
         if num_variations > 0:
             summary = (
@@ -691,6 +707,7 @@ class TankAnalysisApp(tk.Tk):
             summary = "Nessuna variazione disponibile"
         
         self.lbl_var_summary.config(text=summary)
+        print(f"[DEBUG] Summary aggiornato: {summary[:50]}...")
     
     # ==================== DATI RAW ====================
     
