@@ -5,10 +5,10 @@ Configurazioni centrali per Tank Analysis Tool
 """
 
 # ============= INFO APPLICAZIONE =============
-APP_TITLE = "Analisi Tank - Stock Cantina"
-APP_VERSION = "1.2"
+APP_TITLE = "Analisi Tank – per Tank + per Material + Totale (no SG)"
+APP_VERSION = "1.0"
 APP_AUTHOR = "PA"
-APP_EMAIL = "Paolo_aru@heinekenitalia.it"
+APP_EMAIL = "PA@HE.IT"
 APP_DEPT = "ASS_ST"
 
 # ============= MAPPING MATERIALI =============
@@ -48,9 +48,10 @@ DATE_FORMATS = [
 import re
 
 REGEX_PATTERNS = {
-    'avg': re.compile(r"^(FST|BBT)\s*([0-9]+)\s*Average\s*(Plato|Gravity)$", re.I),
-    'level': re.compile(r"^(FST|BBT)\s*([0-9]+)\s*Level\s*$", re.I),
-    'material': re.compile(r"^(FST|BBT)\s*([0-9]+)\s*Material\s*$", re.I),
+    # Accetta spazi opzionali tra tipo e numero, e spazi finali
+    'avg': re.compile(r"^(FST|BBT|RBT)\s*([0-9]+)\s*Average\s*(Plato|Gravity)\s*$", re.I),
+    'level': re.compile(r"^(FST|BBT|RBT)\s*([0-9]+)\s*Level\s*$", re.I),
+    'material': re.compile(r"^(FST|BBT|RBT)\s*([0-9]+)\s*Material\s*$", re.I),
 }
 
 # ============= UI SETTINGS =============
