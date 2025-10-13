@@ -366,6 +366,10 @@ class TankAnalysisApp(tk.Tk):
         self.lbl_var_summary = ttk.Label(summary_frame, text="Seleziona un giorno per vedere le variazioni", 
                                          foreground=COLORS['info'])
         self.lbl_var_summary.pack(padx=10, pady=10, anchor=tk.W)
+        
+        # Configura tag colori per la treeview variazioni
+        self.tv_variations.tag_configure("decrease", background=COLORS['decrease'])
+        self.tv_variations.tag_configure("increase", background=COLORS['increase'])
     
     # ==================== TAB: DATI RAW ====================
     

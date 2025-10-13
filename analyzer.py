@@ -56,8 +56,11 @@ class TankAnalyzer:
         patterns = REGEX_PATTERNS
         
         for idx, col in enumerate(self.header):
+            # Normalizza: rimuovi spazi extra
+            col_normalized = ' '.join(col.split())
+            
             # Average Gravity/Plato
-            m = patterns['avg'].match(col)
+            m = patterns['avg'].match(col_normalized)
             if m:
                 family = m.group(1).upper()
                 num = m.group(2)
@@ -65,14 +68,14 @@ class TankAnalyzer:
                 self.avg_cols.append((idx, tank_key, family))
             
             # Level
-            m2 = patterns['level'].match(col)
+            m2 = patterns['level'].match(col_normalized)
             if m2:
                 family = m2.group(1).upper()
                 num = m2.group(2)
                 self.level_idx[f"{family}{num}"] = idx
             
             # Material
-            m3 = patterns['material'].match(col)
+            m3 = patterns['material'].match(col_normalized)
             if m3:
                 family = m3.group(1).upper()
                 num = m3.group(2)
@@ -201,6 +204,7 @@ class TankAnalyzer:
             return False
         if family == 'BBT' and not include_bbt:
             return False
+        # RBT viene sempre incluso se presente (non ha checkbox dedicato)
         return True
     
     def _extract_tank_data(self, row, idx, tank_key):
