@@ -5,10 +5,10 @@ Configurazioni centrali per Tank Analysis Tool
 """
 
 # ============= INFO APPLICAZIONE =============
-APP_TITLE = "Analisi Tank – per Tank + per Material + Totale (no SG)"
+APP_TITLE = "Analisi Tank - PA "
 APP_VERSION = "1.0"
-APP_AUTHOR = "PA"
-APP_EMAIL = "PA@HE.IT"
+APP_AUTHOR = "Paolo Aru"
+APP_EMAIL = "paolo_aru@heinekenitalia.it"
 APP_DEPT = "ASS_ST"
 
 # ============= MAPPING MATERIALI =============
@@ -19,6 +19,11 @@ MATERIAL_MAPPING = {
     '28': 'ambra limpida',
     '0': 'vuoto',
     '10': 'ich(prop)',
+    '32': 'Recovered Beer',
+    '36': 'Recovered Beer',
+    '3': 'NF Bottle',
+    '1': 'Ich Bottle',
+    '2': 'Ich Fusti',
 }
 
 MATERIAL_DEFAULT_EMPTY = '(vuoto)'
