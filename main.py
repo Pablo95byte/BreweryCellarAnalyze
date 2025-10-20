@@ -65,6 +65,7 @@ class TankAnalysisApp(tk.Tk):
         self.var_filter_tank = tk.StringVar(value="Tutti")
         self.b_fst = tk.BooleanVar(value=True)
         self.b_bbt = tk.BooleanVar(value=True)
+        self.b_rbt = tk.BooleanVar(value=True)
         
         # Windows
         self._tot_win = None
@@ -75,6 +76,9 @@ class TankAnalysisApp(tk.Tk):
         # Mostra splash e costruisci UI
         self.show_splash()
         self._build_ui()
+        
+        # Inizializza cache variazioni
+        self._cache_variations = []
     
     # ==================== SPLASH SCREEN ====================
     
@@ -137,12 +141,13 @@ class TankAnalysisApp(tk.Tk):
         self.lbl_file.pack(side=tk.LEFT, padx=10)
     
     def _build_filters(self):
-        """Filtri FST/BBT"""
+        """Filtri FST/BBT/RBT"""
         filt = ttk.Frame(self)
         filt.pack(fill=tk.X, padx=10, pady=(0,8))
         
         ttk.Checkbutton(filt, text="FST", variable=self.b_fst).pack(side=tk.LEFT, padx=(0,10))
         ttk.Checkbutton(filt, text="BBT", variable=self.b_bbt).pack(side=tk.LEFT, padx=(0,10))
+        ttk.Checkbutton(filt, text="RBT", variable=self.b_rbt).pack(side=tk.LEFT, padx=(0,10))
         ttk.Button(filt, text="Applica", command=self.on_apply).pack(side=tk.LEFT)
     
     def _build_day_selector(self):
@@ -349,8 +354,8 @@ class TankAnalysisApp(tk.Tk):
         self.cb_filter_tank['values'] = ["Tutti"]
         self.cb_filter_tank.pack(side=tk.LEFT, padx=(5,10))
         self.cb_filter_tank.bind("<<ComboboxSelected>>", lambda e: self.update_variations_table())
-        ttk.Button(select_frame, text="Aggiorna Filtro", command=self.update_variations_table).pack(side=tk.LEFT)
-        ttk.Button(select_frame, text="Carica Variazioni", command=self.load_all_variations).pack(side=tk.LEFT, padx=(10,0))
+        ttk.Button(select_frame, text="Aggiorna Filtro", command=lambda: self.update_variations_table()).pack(side=tk.LEFT)
+        ttk.Button(select_frame, text="Carica Variazioni", command=lambda: self.load_all_variations()).pack(side=tk.LEFT, padx=(10,0))
         
         # Tabella variazioni
         var_frame = ttk.Frame(tab)
@@ -564,7 +569,8 @@ class TankAnalysisApp(tk.Tk):
         tanks, mats, debug = self.analyzer.analyze(
             t_from=t_from, t_to=t_to,
             include_fst=self.b_fst.get(), 
-            include_bbt=self.b_bbt.get()
+            include_bbt=self.b_bbt.get(),
+            include_rbt=self.b_rbt.get()
         )
         
         self._cache_tank = tanks
@@ -576,11 +582,67 @@ class TankAnalysisApp(tk.Tk):
         self.update_variations_table()
         self.refresh_total_window()
     
+    def _populate_summary_tables(self):
+        """Popola tabelle riepilogo"""
+        # Materiali
+        for r in self.tv_mat.get_children():
+            self.tv_mat.delete(r)
+        for m, kg, fa, n in self._cache_mat:
+            self.tv_mat.insert("", tk.END, values=(m, fmt_it(kg, 3), fmt_it(fa), n))
+        
+        # Tank
+        for r in self.tv.get_children():
+            self.tv.delete(r)
+        for tank, mat, g_last, v_last, sum_fa, kg_ext, n in self._cache_tank:
+            self.tv.insert("", tk.END, values=(
+                tank,
+                mat if mat else '',
+                fmt_it(g_last, 2) if g_last is not None else "",
+                fmt_it(v_last, 2) if v_last is not None else "",
+                fmt_it(sum_fa),
+                fmt_it(kg_ext, 3),
+                n
+            ))
+    
+    def _populate_debug_table(self):
+        """Popola tabella debug"""
+        for r in self.tv_debug.get_children():
+            self.tv_debug.delete(r)
+        
+        debug_total = 0.0
+        for dt, tank, mat, g, v, fa, kg in self._cache_debug:
+            self.tv_debug.insert("", tk.END, values=(
+                dt.strftime("%Y-%m-%d %H:%M:%S") if dt else "",
+                tank, mat,
+                fmt_it(g, 2) if g is not None else "",
+                fmt_it(v, 2) if v is not None else "",
+                fmt_it(fa, 6) if fa is not None else "",
+                fmt_it(kg, 3)
+            ))
+            debug_total += kg
+        
+        self.lbl_debug_total.config(text=f"Totale Kg estratto (debug): {fmt_it(debug_total, 3)} | Righe: {len(self._cache_debug)}")
+    
+    def _parse_date(self, s):
+        """Parse data YYYY-MM-DD"""
+        s = str(s).strip()
+        if not s:
+            return None
+        try:
+            return datetime.strptime(s, "%Y-%m-%d")
+        except Exception:
+            return None
+    
+    # ==================== VARIAZIONI ====================
+    
     def load_all_variations(self):
         """Carica le variazioni giornaliere per tutti i giorni del CSV"""
         if not self.analyzer:
             messagebox.showwarning("Attenzione", "Carica prima un file CSV")
             return
+        
+        # Mostra stato filtri
+        print(f"[DEBUG] Filtri attivi: FST={self.b_fst.get()}, BBT={self.b_bbt.get()}, RBT={self.b_rbt.get()}")
         
         # Analizza tutti i giorni disponibili
         print("[DEBUG] Caricamento variazioni giornaliere...")
@@ -607,6 +669,11 @@ class TankAnalysisApp(tk.Tk):
                     continue
                 if family == 'BBT' and not self.b_bbt.get():
                     continue
+                if family == 'RBT' and not self.b_rbt.get():
+                    continue
+                
+                # DEBUG: mostra cosa viene processato
+                # print(f"[DEBUG] Processando {tank_key} (famiglia: {family})")
                 
                 if idx >= len(row):
                     continue
@@ -683,62 +750,11 @@ class TankAnalysisApp(tk.Tk):
         if not self._cache_variations:
             messagebox.showinfo("Info", "Nessuna variazione trovata. Verifica che ci siano almeno 2 giorni consecutivi con dati.")
         else:
-            messagebox.showinfo("Successo", f"Caricate {len(self._cache_variations)} variazioni giornaliere!")
+            messagebox.showinfo("Successo", f"Caricate {len(self._cache_variations)} variazioni giornaliere!\n\n"
+                              f"Giorni analizzati: {len(sorted_days)}\n"
+                              f"Confronti giorno-giorno: {len(sorted_days)-1}")
         
         self.update_variations_table()
-
-    def _populate_summary_tables(self):
-        """Popola tabelle riepilogo"""
-        # Materiali
-        for r in self.tv_mat.get_children():
-            self.tv_mat.delete(r)
-        for m, kg, fa, n in self._cache_mat:
-            self.tv_mat.insert("", tk.END, values=(m, fmt_it(kg, 3), fmt_it(fa), n))
-        
-        # Tank
-        for r in self.tv.get_children():
-            self.tv.delete(r)
-        for tank, mat, g_last, v_last, sum_fa, kg_ext, n in self._cache_tank:
-            self.tv.insert("", tk.END, values=(
-                tank,
-                mat if mat else '',
-                fmt_it(g_last, 2) if g_last is not None else "",
-                fmt_it(v_last, 2) if v_last is not None else "",
-                fmt_it(sum_fa),
-                fmt_it(kg_ext, 3),
-                n
-            ))
-    
-    def _populate_debug_table(self):
-        """Popola tabella debug"""
-        for r in self.tv_debug.get_children():
-            self.tv_debug.delete(r)
-        
-        debug_total = 0.0
-        for dt, tank, mat, g, v, fa, kg in self._cache_debug:
-            self.tv_debug.insert("", tk.END, values=(
-                dt.strftime("%Y-%m-%d %H:%M:%S") if dt else "",
-                tank, mat,
-                fmt_it(g, 2) if g is not None else "",
-                fmt_it(v, 2) if v is not None else "",
-                fmt_it(fa, 6) if fa is not None else "",
-                fmt_it(kg, 3)
-            ))
-            debug_total += kg
-        
-        self.lbl_debug_total.config(text=f"Totale Kg estratto (debug): {fmt_it(debug_total, 3)} | Righe: {len(self._cache_debug)}")
-    
-    def _parse_date(self, s):
-        """Parse data YYYY-MM-DD"""
-        s = str(s).strip()
-        if not s:
-            return None
-        try:
-            return datetime.strptime(s, "%Y-%m-%d")
-        except Exception:
-            return None
-    
-    # ==================== VARIAZIONI ====================
     
     def update_variations_table(self):
         """Aggiorna tabella variazioni con i dati calcolati"""
@@ -858,7 +874,8 @@ class TankAnalysisApp(tk.Tk):
         
         daily_data = self.analyzer.analyze_all_days(
             include_fst=self.b_fst.get(),
-            include_bbt=self.b_bbt.get()
+            include_bbt=self.b_bbt.get(),
+            include_rbt=self.b_rbt.get()
         )
         
         if not daily_data:

@@ -95,7 +95,7 @@ class TankAnalyzer:
                     if self.max_time is None or dt > self.max_time:
                         self.max_time = dt
     
-    def analyze(self, t_from=None, t_to=None, include_fst=True, include_bbt=True):
+    def analyze(self, t_from=None, t_to=None, include_fst=True, include_bbt=True, include_rbt=True):
         """
         Analizza i dati e restituisce aggregazioni per tank, materiale e debug
         
@@ -114,7 +114,7 @@ class TankAnalyzer:
             
             # Processa ogni tank
             for idx, tank_key, family in self.avg_cols:
-                if not self._passes_family_filter(family, include_fst, include_bbt):
+                if not self._passes_family_filter(family, include_fst, include_bbt, include_rbt):
                     continue
                 
                 # Estrai dati
@@ -140,7 +140,7 @@ class TankAnalyzer:
         
         return tank_rows, material_rows, debug_data
     
-    def analyze_all_days(self, include_fst=True, include_bbt=True):
+    def analyze_all_days(self, include_fst=True, include_bbt=True, include_rbt=True):
         """
         Analizza tutti i giorni disponibili per grafici temporali
         
@@ -164,7 +164,7 @@ class TankAnalyzer:
             day_key = dt.date().strftime("%Y-%m-%d")
             
             for idx, tank_key, family in self.avg_cols:
-                if not self._passes_family_filter(family, include_fst, include_bbt):
+                if not self._passes_family_filter(family, include_fst, include_bbt, include_rbt):
                     continue
                 
                 data = self._extract_tank_data(row, idx, tank_key)
@@ -198,13 +198,14 @@ class TankAnalyzer:
                 return False
         return True
     
-    def _passes_family_filter(self, family, include_fst, include_bbt):
+    def _passes_family_filter(self, family, include_fst, include_bbt, include_rbt):
         """Verifica se la famiglia di tank passa il filtro"""
         if family == 'FST' and not include_fst:
             return False
         if family == 'BBT' and not include_bbt:
             return False
-        # RBT viene sempre incluso se presente (non ha checkbox dedicato)
+        if family == 'RBT' and not include_rbt:
+            return False
         return True
     
     def _extract_tank_data(self, row, idx, tank_key):
