@@ -24,7 +24,12 @@ MATERIAL_MAPPING = {
     '3': 'NF Bottle',
     '1': 'Ich Bottle',
     '2': 'Ich Fusti',
-}
+    '21': 'Cruda',
+    '22': 'Cruda Fusti',
+    '18': 'NF Fusti',
+    '60': 'Metodo Lento',
+    '62': 'Metodo Lento'
+    }
 
 MATERIAL_DEFAULT_EMPTY = '(vuoto)'
 
